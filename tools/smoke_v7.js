@@ -59,6 +59,8 @@ const files = [
   'public/js/units/hammer.js',
   'public/js/units/horse_archer.js',
   'public/js/units/wall.js',
+  'public/js/units/scout.js',
+  'public/js/units/architect.js',
   'public/js/maps/valley_river.js',
   'public/js/maps/wide_river.js',
   'public/js/maps/grand_basin.js',
@@ -70,6 +72,7 @@ const files = [
   'public/js/production.js',
   'public/js/resources.js',
   'public/js/projectiles.js',
+  'public/js/towers.js',
   'public/js/ai.js',
 ];
 
@@ -97,6 +100,7 @@ for (const f of files) {
     damageNumbers: [],
     resources: { nodes: RTS.World.placeResources(map) },
     corpses: [],
+    towers: [],
     ai: RTS.AI.init('enemy', 'deepseek'),
     playerAI: RTS.AI.init('player', 'doubao'),
   };
@@ -111,6 +115,8 @@ for (const f of files) {
     RTS.Resources.captureUpdate(STEP);
     RTS.Resources.incomeUpdate(STEP);
     RTS.Resources.baseDefenseUpdate(STEP);
+    RTS.Towers.updateArchitects(STEP);
+    RTS.Towers.update(STEP);
     RTS.state.player.units.forEach((u) => RTS.Unit.update(u, STEP));
     RTS.state.enemy.units.forEach((u) => RTS.Unit.update(u, STEP));
     RTS.Projectiles.update(STEP);

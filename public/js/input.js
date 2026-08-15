@@ -14,6 +14,7 @@ RTS.Input = (function () {
     dragStartScreen: { x: 0, y: 0 },
     dragStartWorld: { x: 0, y: 0 },
     attackMovePending: false,
+    buildPending: false, // v9：选中建筑师后按 B，左键指定哨塔建造位置
     keys: new Set(),
   };
 
@@ -131,9 +132,53 @@ RTS.Input = (function () {
     });
   }
 
+  /** v9：向选中建筑师下达「在此建造防御哨塔」指令 */
+  function issueBuild(wx, wy) {
+    const st = RTS.state;
+    const architects = selectedUnits().filter((u) => u.type === 'architect');
+    if (architects.length === 0) {
+      RTS.UI && RTS.UI.toast('需要先选中建筑师（👷）才能建造哨塔', 'warn');
+      state.buildPending = false;
+      return;
+    }
+    const Cfg = C();
+    if (st.player.wood < Cfg.towerBuildCost.wood || st.player.stone < Cfg.towerBuildCost.stone) {
+      RTS.UI && RTS.UI.toast(`建造哨塔需要 🪵${Cfg.towerBuildCost.wood} 🪨${Cfg.towerBuildCost.stone}`, 'warn');
+      return;
+    }
+    const offs = formationOffsets(architects.length);
+    let okCount = 0;
+    architects.forEach((u, i) => {
+      const p = RTS.World.nearestWalkablePx(wx + offs[i].x, wy + offs[i].y);
+      const res = RTS.Towers.orderBuild(u, p.x, p.y);
+      if (res.ok) okCount++;
+    });
+    if (okCount > 0) {
+      markOrder(wx, wy, '#ffd24e');
+      RTS.UI && RTS.UI.toast(`建筑师开始施工（🪵${Cfg.towerBuildCost.wood} 🪨${Cfg.towerBuildCost.stone}），再点可继续放置，Esc 结束`, 'info');
+      // 保持 buildPending，方便连续放置多座哨塔
+    } else {
+      RTS.UI && RTS.UI.toast('此处无法建造（资源不足/位置不可用/数量已达上限）', 'warn');
+    }
+  }
+
+  function hasSelectedArchitect() {
+    const st = RTS.state;
+    if (!st) return false;
+    for (const id of st.selection) {
+      const u = st.player.units.get(id);
+      if (u && u.hp > 0 && u.type === 'architect') return true;
+    }
+    return false;
+  }
+
   function onLeftClick(wx, wy, shift) {
     const st = RTS.state;
     if (playerAIControlled()) return; // AI 接管中：屏蔽选择
+    if (state.buildPending) {
+      issueBuild(wx, wy);
+      return;
+    }
     if (state.attackMovePending) {
       state.attackMovePending = false;
       issueAttackMove(wx, wy);
@@ -179,8 +224,9 @@ RTS.Input = (function () {
   function onRightClick(wx, wy) {
     const st = RTS.state;
     if (playerAIControlled()) return; // AI 接管中：屏蔽移动/攻击/集结点指令
-    // 右键下达移动/攻击指令时，取消待命的攻击移动，避免下次左键误触发
+    // 右键下达移动/攻击指令时，取消待命的攻击移动/建造模式，避免下次左键误触发
     state.attackMovePending = false;
+    state.buildPending = false;
 
     // 已选中己方城堡：右键设置单位出生集结点
     if (st.selectedBase === 'player') {
@@ -288,12 +334,29 @@ RTS.Input = (function () {
 
       if (prodType) {
         if (!playerAIControlled()) RTS.UI.orderProduction(prodType);
+      } else if (upper === C().buildTowerKey) {
+        // v9：选中建筑师后按 B 进入「建造哨塔」模式（再按一次取消）
+        if (!playerAIControlled()) {
+          if (!hasSelectedArchitect()) {
+            RTS.UI && RTS.UI.toast('需要先选中建筑师（👷）才能建造哨塔', 'warn');
+          } else {
+            state.buildPending = !state.buildPending;
+            state.attackMovePending = false;
+            if (state.buildPending) {
+              RTS.UI && RTS.UI.toast('建造模式：左键指定哨塔位置，Esc 结束', 'info');
+            }
+          }
+        }
       } else if (upper === C().attackMoveKey) {
-        if (!playerAIControlled()) state.attackMovePending = true;
+        if (!playerAIControlled()) {
+          state.attackMovePending = true;
+          state.buildPending = false;
+        }
       } else if (key === 'Escape') {
         st.selection.clear();
         st.selectedBase = null;
         state.attackMovePending = false;
+        state.buildPending = false;
       } else if (key === ' ') {
         e.preventDefault();
         RTS.Camera.setCenter(st.player.base.x, st.player.base.y);

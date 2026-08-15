@@ -350,6 +350,85 @@ RTS.Render = (function () {
     ctx.fillRect(x - w / 2, y, w * Math.max(0, Math.min(1, ratio)), 6);
   }
 
+  // ---------------------------------------------------------------- v9 防御哨塔
+
+  function drawTowers() {
+    const st = RTS.state;
+    if (!st || !st.towers || st.towers.length === 0) return;
+    const vp = viewportWorld();
+    const z = RTS.Camera.get().zoom;
+    for (const t of st.towers) {
+      if (t.x < vp.left - 80 || t.x > vp.right + 80 || t.y < vp.top - 80 || t.y > vp.bottom + 80) continue;
+      const r = t.radius;
+      const color = t.owner === 'player' ? '#4aa8ff' : '#ff5a5a';
+
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      // 底座阴影
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(0, r * 0.85, r * 1.1, r * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 塔身（石质圆塔）
+      ctx.fillStyle = '#5a6070';
+      ctx.strokeStyle = '#0c1220';
+      ctx.lineWidth = 2 / z;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // 砖纹
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 1 / z;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(-r, i * r * 0.55);
+        ctx.lineTo(r, i * r * 0.55);
+        ctx.stroke();
+      }
+      // 城垛
+      ctx.fillStyle = '#6b7280';
+      for (let k = -1; k <= 1; k++) {
+        ctx.fillRect(k * r * 0.85 - r * 0.32, -r, r * 0.64, r * 0.4);
+      }
+      // 塔顶（含发射闪光）
+      const flash = t.firingFlash > 0 ? Math.min(1, t.firingFlash / C().towerFlash) : 0;
+      ctx.fillStyle = flash > 0 ? `rgba(255,210,78,${0.4 + flash * 0.6})` : '#4a4f5a';
+      ctx.beginPath();
+      ctx.moveTo(0, -r);
+      ctx.lineTo(-r * 0.42, -r * 1.45);
+      ctx.lineTo(r * 0.42, -r * 1.45);
+      ctx.closePath();
+      ctx.fill();
+      if (flash > 0) {
+        ctx.globalAlpha = flash * 0.5;
+        ctx.fillStyle = '#ffe9a3';
+        ctx.beginPath();
+        ctx.arc(0, -r * 1.1, r * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      // 旗帜
+      ctx.strokeStyle = '#e8eef7';
+      ctx.lineWidth = 1.8 / z;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 1.45);
+      ctx.lineTo(0, -r * 1.9);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 1.9);
+      ctx.lineTo(r * 0.55, -r * 1.78);
+      ctx.lineTo(0, -r * 1.66);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // 血条
+      drawBar(t.x, t.y - r - 16, r * 2, t.hp / t.maxHp, t.hp / t.maxHp > 0.5 ? '#6ee7a0' : '#ffb020');
+    }
+  }
+
   // ---------------------------------------------------------------- 单位绘制
   // 单位的实际绘制由各自定义文件（js/units/*.js 的 draw 函数）负责，这里只做通用包装。
 
@@ -434,6 +513,23 @@ RTS.Render = (function () {
       // 血条（选中或受损时）
       if ((!isEnemy && st.selection.has(u.id)) || u.hp < u.maxHp) {
         drawBar(u.x, u.y - u.radius - 12, u.radius * 2.4, u.hp / u.maxHp, u.hp / u.maxHp > 0.5 ? '#6ee7a0' : '#ffb020');
+      }
+
+      // v9：建筑师施工进度条
+      if (u.building) {
+        const b = u.building;
+        const ratio = Math.max(0, Math.min(1, b.progress / b.total));
+        const bw = u.radius * 2.2;
+        const by = u.y - u.radius - 22;
+        ctx.fillStyle = 'rgba(0,0,0,0.62)';
+        ctx.fillRect(u.x - bw / 2, by, bw, 5);
+        ctx.fillStyle = '#ffd24e';
+        ctx.fillRect(u.x - bw / 2, by, bw * ratio, 5);
+        // 施工进度环图标
+        ctx.font = `${Math.max(10, 11 / z)}px "Segoe UI", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffe9a3';
+        ctx.fillText('🔨', u.x, by - 4);
       }
     };
 
@@ -703,6 +799,7 @@ RTS.Render = (function () {
     drawResourceNodes();
     drawBase(RTS.state.player.base);
     drawBase(RTS.state.enemy.base);
+    drawTowers(); // v9：防御哨塔
     drawCorpses();
     drawUnits();
     drawProjectiles();
@@ -770,6 +867,14 @@ RTS.Render = (function () {
     mctx.fillRect(RTS.state.player.base.x * sx - 4, RTS.state.player.base.y * sy - 4, 8, 8);
     mctx.fillStyle = '#ff5a5a';
     mctx.fillRect(RTS.state.enemy.base.x * sx - 4, RTS.state.enemy.base.y * sy - 4, 8, 8);
+
+    // v9：防御哨塔
+    if (RTS.state.towers) {
+      for (const t of RTS.state.towers) {
+        mctx.fillStyle = t.owner === 'player' ? '#6ec6ff' : '#ff8a8a';
+        mctx.fillRect(t.x * sx - 2, t.y * sy - 2, 4, 4);
+      }
+    }
 
     // 单位
     mctx.fillStyle = '#4aa8ff';

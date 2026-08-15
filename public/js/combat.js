@@ -97,6 +97,20 @@ RTS.Combat = (function () {
       }
     }
 
+    // v9：敌方防御哨塔（在索敌半径内，视为建筑目标）
+    const towers = (RTS.state && RTS.state.towers) || [];
+    for (const t of towers) {
+      if (t.owner !== enemy || t.hp <= 0) continue;
+      const dx = t.x - unit.x;
+      const dy = t.y - unit.y;
+      const reach = range + t.radius;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= reach * reach && d2 <= bestDist) {
+        bestDist = d2;
+        best = { kind: 'tower', ref: t };
+      }
+    }
+
     return best;
   }
 
@@ -131,6 +145,19 @@ RTS.Combat = (function () {
     return dmg;
   }
 
+  /** 结算一次对哨塔的伤害（v9：坚固建筑减免，参考基地伤害逻辑） */
+  function hitTower(attackValue, tower) {
+    if (!tower || tower.hp <= 0) return 0;
+    const dmg = Math.max(1, Math.floor(attackValue * C().towerDamageMultiplier));
+    tower.hp -= dmg;
+    spawnDamageNumber(tower.x + (Math.random() - 0.5) * 20, tower.y - tower.radius * 0.6, dmg, '#ffb020');
+    if (tower.hp <= 0) {
+      tower.hp = 0;
+      if (RTS.Towers) RTS.Towers.destroy(tower);
+    }
+    return dmg;
+  }
+
   /** 近战/瞬时攻击结算（由单位直接调用） */
   function deliverAttack(unit, target) {
     if (target.kind === 'unit') {
@@ -140,6 +167,11 @@ RTS.Combat = (function () {
       const def = RTS.Units.get(unit.type);
       const baseMul = (def && def.baseMul) || 1;
       hitBase(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref, RTS.Resources.siegeMul(unit.owner));
+    } else if (target.kind === 'tower') {
+      // v9：攻击哨塔（攻城武器 baseMul 同样生效）
+      const def = RTS.Units.get(unit.type);
+      const baseMul = (def && def.baseMul) || 1;
+      hitTower(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref);
     }
   }
 
@@ -240,6 +272,7 @@ RTS.Combat = (function () {
     deliverAttack,
     applyUnitDamage,
     hitBase,
+    hitTower,
     kill,
     ageCorpses,
     query,

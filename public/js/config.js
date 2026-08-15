@@ -106,6 +106,20 @@ RTS.CONFIG = {
   baseSpawnRallyDist: 140, // 默认集结点距城堡的距离（朝敌方一侧，px）
   spawnGateDist: 30, // 单位从城门出生位置（baseRadius + 该偏移，px）
 
+  // ---------------------------------------------------------------- 防御哨塔（v9：建筑师建造）
+  towerBuildCost: { wood: 60, stone: 60 }, // 建造哨塔消耗的木材/石料
+  towerBuildTime: 3.5, // 建造时长（秒）
+  towerMaxHp: 420, // 哨塔耐久（高，防御力强）
+  towerRadius: 26, // 哨塔占位半径（px，同时是障碍范围）
+  towerDamageMultiplier: 0.85, // 哨塔为坚固建筑，受到武器伤害的减免倍率
+  towerDefenseRange: 290, // 哨塔射箭范围（px）
+  towerDefenseDamage: 13, // 单支塔箭伤害
+  towerDefenseInterval: 1.6, // 每轮箭雨间隔（秒）
+  towerDefenseArrows: 1, // 每轮箭数
+  towerFlash: 0.3, // 塔顶闪光时长（秒）
+  towerBuildRadius: 26, // 建筑师判定「到达建造点」的距离（px）
+  maxTowersPerFaction: 8, // 每阵营哨塔数量上限（防止无限铺塔）
+
   // ---------------------------------------------------------------- 投射物
   arrowSpeed: 540, // 弓箭飞行速度 px/s
   towerArrowSpeed: 470, // 塔箭飞行速度 px/s
@@ -139,6 +153,7 @@ RTS.CONFIG = {
 
   // ---------------------------------------------------------------- 快捷键
   attackMoveKey: 'A',
+  buildTowerKey: 'B', // v9：选中建筑师后按 B + 左键，在目标位置建造防御哨塔
   spaceCenterKey: 'Space',
 
   // ---------------------------------------------------------------- 相机

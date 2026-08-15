@@ -41,6 +41,7 @@ RTS.Match = (function () {
       damageNumbers: [],
       resources: { nodes: RTS.World.placeResources(map) },
       corpses: [],
+      towers: [], // v9：防御哨塔列表（建筑师建造）
       ai: RTS.AI.init('enemy', p.enemy),   // 敌方 AI（LLM 接管）
       playerAI: null,                       // 玩家 AI 接管实例（顶部按钮创建，null 表示未接管）
     };
@@ -176,6 +177,9 @@ RTS.Match = (function () {
           RTS.Resources.captureUpdate(STEP);
           RTS.Resources.incomeUpdate(STEP);
           RTS.Resources.baseDefenseUpdate(STEP);
+          // v9：防御哨塔——推进建筑师施工 + 哨塔自动射箭
+          RTS.Towers.updateArchitects(STEP);
+          RTS.Towers.update(STEP);
           RTS.Match.updateAllUnits(STEP);
           RTS.Projectiles.update(STEP);
           RTS.Combat.applySeparation();

@@ -250,7 +250,7 @@ function extractJson(content) {
 
 // 与前端 ai.js STANCE_LIST 保持一致的态势白名单
 const STANCE_LIST = [
-  'build', 'boom', 'tech', 'eco_defend',
+  'build', 'boom', 'tech', 'eco_defend', 'fortify',
   'scout', 'scout_hold', 'counter_scout',
   'capture_gold', 'capture_wood', 'capture_stone', 'capture_expand', 'node_garrison',
   'rally', 'rally_hold', 'reinforce',
@@ -259,6 +259,9 @@ const STANCE_LIST = [
   'defend', 'defend_choke', 'defend_node', 'counter_attack', 'fallback',
   'retreat', 'regroup', 'turtle', 'ambush',
 ];
+
+// v9：分队（编队）指令的任务白名单——LLM 可只命令某个兵种执行这些任务
+const SQUAD_TASK_LIST = ['harass', 'attack', 'defend', 'capture', 'rally', 'retreat'];
 
 function clampDecision(decision) {
   if (!decision || typeof decision !== 'object') return null;
@@ -272,11 +275,19 @@ function clampDecision(decision) {
   const stance = STANCE_LIST.includes(decision.stance) ? decision.stance : null;
   const lane = ['top', 'mid', 'bottom'].includes(decision.lane) ? decision.lane : null;
   const targetFocus = ['base', 'army', 'econ'].includes(decision.targetFocus) ? decision.targetFocus : null;
+  // v9：分队指令 { type: 兵种id, task: 任务, lane?: 方向 }
+  let squad = null;
+  if (decision.squad && typeof decision.squad === 'object') {
+    const sType = VALID_ARMY_FOCUS.includes(decision.squad.type) ? decision.squad.type : null;
+    const sTask = SQUAD_TASK_LIST.includes(decision.squad.task) ? decision.squad.task : null;
+    const sLane = ['top', 'mid', 'bottom'].includes(decision.squad.lane) ? decision.squad.lane : null;
+    if (sType && sTask) squad = { type: sType, task: sTask, lane: sLane };
+  }
   let comment = typeof decision.comment === 'string' ? decision.comment.slice(0, 60) : '';
-  if (!armyFocus && !stance && !lane && !targetFocus && !attackNow && aggression === 50) {
+  if (!armyFocus && !stance && !lane && !targetFocus && !attackNow && !squad && aggression === 50) {
     return null; // 完全非法
   }
-  return { armyFocus, aggression, attackNow, stance, lane, targetFocus, comment };
+  return { armyFocus, aggression, attackNow, stance, lane, targetFocus, squad, comment };
 }
 
 /**
@@ -291,15 +302,25 @@ function buildSystemPrompt(side) {
     '【科技】(myUpgrades 字段为当前等级，每线最高 5 级)：' +
     'attack军备锻造(攻击)/armor铁甲研究(减伤)/defense城防工事(箭塔与耐久)/' +
     'siegecraft破城技术(对基地伤害)/mobility疾行军(移速)。\n\n' +
+    '【v9 新规则】' +
+    '斥候(scout)移速全场最快，适合抢占资源点与侦查，别拿去硬拼；' +
+    '建筑师(architect)可在指定位置建造防御哨塔（消耗木材与石料，哨塔高耐久、自动射箭），' +
+    '态势选 fortify 即可让建筑师在已占资源点/桥头/基地附近自动筑垒；' +
+    '哨塔可被敌方摧毁，注意保护。\n\n' +
+    '【分队指令】(squad 字段，可选)：不必总是命令全体部队——可以只命令某个兵种（同一兵种=一个编队）执行独立任务，' +
+    '其余部队仍按 stance 行动。格式：squad={type: 兵种id, task: harass(侧翼骚扰)/attack(分队进攻)/defend(回防)/' +
+    'capture(抢资源)/rally(集结)/retreat(撤退), lane?: top/mid/bottom}。' +
+    '例如让骑兵( cavalry)走 top 侧翼骚扰、步兵按 stance 扛线。\n\n' +
     '【JSON 字段】(除 comment 外都可省略)：' +
     'armyFocus(兵种倾向，取上面兵种 id 之一)、' +
     'aggression(0-100 进攻倾向)、' +
     'attackNow(布尔，是否立即总攻)、' +
-    'stance(指定态势，可选 build/boom/tech/eco_defend/scout/scout_hold/counter_scout/' +
+    'stance(指定态势，可选 build/boom/tech/eco_defend/fortify/scout/scout_hold/counter_scout/' +
     'capture_gold/capture_wood/capture_stone/capture_expand/node_garrison/' +
     'rally/rally_hold/reinforce/harass/harass_flank/harass_econ/' +
     'assault_mid/assault_top/assault_bottom/all_in/pincer/feint/siege/' +
     'defend/defend_choke/defend_node/counter_attack/fallback/retreat/regroup/turtle/ambush 之一)、' +
+    'squad(分队指令，见上)、' +
     'lane(主攻方向，top/mid/bottom 之一)、' +
     'targetFocus(目标侧重，base/army/econ 之一)、' +
     'comment(不超过30字说明)。'

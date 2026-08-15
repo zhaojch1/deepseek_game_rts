@@ -57,6 +57,27 @@ RTS.Projectiles = (function () {
     });
   }
 
+  /** v9：防御哨塔射箭：从塔顶朝目标射出 */
+  function spawnTowerProjectile(tower, target, damage) {
+    const sx = tower.x;
+    const sy = tower.y - tower.radius * 0.5;
+    const tx = target.ref.x;
+    const ty = target.ref.y;
+    spawn({
+      x: sx,
+      y: sy,
+      target,
+      speed: C().towerArrowSpeed,
+      damage,
+      attackerType: 'tower',
+      owner: tower.owner,
+      kind: 'tower',
+      angle: Math.atan2(ty - sy, tx - sx),
+      trail: [],
+      source: { x: sx, y: sy }, // 用于渲染发射轨迹
+    });
+  }
+
   function update(dt) {
     for (let i = list.length - 1; i >= 0; i--) {
       const p = list[i];
@@ -77,13 +98,15 @@ RTS.Projectiles = (function () {
       const dy = ty - p.y;
       const dist = Math.hypot(dx, dy);
       const step = p.speed * dt;
-      const hitR = target.kind === 'base' ? target.ref.radius : target.ref.radius + 4;
+      const hitR = target.kind === 'base' || target.kind === 'tower' ? target.ref.radius : target.ref.radius + 4;
 
       if (dist <= Math.max(step, hitR)) {
         if (target.kind === 'unit') {
           RTS.Combat.applyUnitDamage(p.attackerType, p.damage, target.ref, true);
         } else if (target.kind === 'base') {
           RTS.Combat.hitBase(p.damage, target.ref, RTS.Resources.siegeMul(p.owner));
+        } else if (target.kind === 'tower') {
+          RTS.Combat.hitTower(p.damage, target.ref);
         }
         list.splice(i, 1);
         continue;
@@ -101,5 +124,5 @@ RTS.Projectiles = (function () {
     list.length = 0;
   }
 
-  return { list, spawnArrow, spawnTowerArrow, update, clear };
+  return { list, spawnArrow, spawnTowerArrow, spawnTowerProjectile, update, clear };
 })();

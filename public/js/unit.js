@@ -62,6 +62,7 @@ RTS.Unit = (function () {
     if (!target) return false;
     if (target.kind === 'unit') return target.ref.hp > 0;
     if (target.kind === 'base') return target.ref.hp > 0;
+    if (target.kind === 'tower') return target.ref.hp > 0;
     return false;
   }
 
@@ -212,6 +213,24 @@ RTS.Unit = (function () {
 
   function update(unit, dt) {
     if (unit.hp <= 0) return;
+
+    // v9：建筑师施工中——只前往建造点，抵达后原地站定，不参与战斗/索敌
+    if (unit.type === 'architect' && unit.building) {
+      const spot = unit.building;
+      if (Math.hypot(unit.x - spot.x, unit.y - spot.y) > RTS.CONFIG.towerBuildRadius + 8) {
+        if (!unit.orderTarget) RTS.Unit.orderMove(unit, spot.x, spot.y);
+        else moveAlongPath(unit, dt);
+      } else {
+        unit.state = 'idle';
+        unit.orderTarget = null;
+        unit.path = [];
+        unit.pathIndex = 0;
+      }
+      if (unit.attackAnim > 0) unit.attackAnim = Math.max(0, unit.attackAnim - dt);
+      if (unit.flashTimer > 0) unit.flashTimer -= dt;
+      unit.animPhase += dt * 0.9; // 施工敲打动画
+      return;
+    }
 
     if (unit.attackCooldown > 0) unit.attackCooldown = Math.max(0, unit.attackCooldown - dt);
     if (unit.attackWindup > 0) {

@@ -48,8 +48,9 @@ RTS.Units.register({
   // ---- 标签（供 AI 用，可选但推荐）----
   tags: ['ranged', 'infantry', 'long-range', 'armor-pierce', 'fragile'],
   // 常见标签：'melee'|'ranged'|'infantry'|'cavalry'|'fast'|'shield'|'tank'|'frontline'|
-  //          'fragile'|'cheap'|'flanker'|'shock'|'long-range'|'armor-pierce'
-  // AI 决策会用到：'fast'/'cavalry'（侦查/劫掠/主攻基地加权）、'ranged'（远程加权）
+  //          'fragile'|'cheap'|'flanker'|'shock'|'long-range'|'armor-pierce'|'scout'|'builder'
+  // AI 决策会用到：'fast'/'cavalry'（侦查/劫掠/主攻基地加权）、'ranged'（远程加权）、
+  //               'scout'（抢资源/侦查）、'builder'（筑垒造哨塔）
 
   // ---- AI 生产元信息（可选）----
   ai: {
@@ -185,7 +186,7 @@ RTS.Units.register({
 ## 七、常见坑
 
 - **`range`/`speed` 是「格」单位**，不是像素；像素值 = 设计值 × scale，别直接把像素填进去。
-- **`hotkey` 不能冲突**：现有 Q/W/E/R/T，A 是攻击移动、F2 是调试、空格/方向键是相机。
+- **`hotkey` 不能冲突**：现有 Q/W/E/R/T/Y/U/I/O/P（长矛/刀盾/弓箭/骑兵/弩手/锤子/骑射/肉盾/斥候/建筑师）；A 是攻击移动、B 是建造哨塔、F2 是调试、空格/方向键是相机。
 - **远程单位记得 `ranged: true`**，否则会走近战 `deliverAttack` 而不是射实体箭。
 - **`doc` 要写全数值**：DeepSeek 靠它判断兵种强弱与克制，写错会误导 AI 决策。
 - 非人形单位可不调 `kit.humanoid`，直接用 `ctx` 从零画；但务必在本地坐标、面向 +x。

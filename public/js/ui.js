@@ -360,8 +360,13 @@ RTS.UI = (function () {
     for (const t of RTS.Units.ids()) {
       if (counts[t] > 0) names.push(`${RTS.Units.get(t).name}×${counts[t]}`);
     }
-    el.selectionDetail.textContent =
-      names.join('  ') + (maxHp > 0 ? `  ·  平均血量 ${Math.round((totalHp / maxHp) * 100)}%` : '');
+    let detail = names.join('  ') + (maxHp > 0 ? `  ·  平均血量 ${Math.round((totalHp / maxHp) * 100)}%` : '');
+    // v9：选中建筑师时提示建造操作
+    if (counts.architect > 0) {
+      const Cfg = RTS.CONFIG;
+      detail += `\n👷 建筑师×${counts.architect}：按 B + 左键在指定位置建造防御哨塔（🪵${Cfg.towerBuildCost.wood} 🪨${Cfg.towerBuildCost.stone}）`;
+    }
+    el.selectionDetail.textContent = detail;
   }
 
   function aiSourceLabel(ai) {
@@ -384,6 +389,10 @@ RTS.UI = (function () {
     if (ai.strategy.armyFocus) lines.push(`敌方兵种倾向：${RTS.Unit.typeStats(ai.strategy.armyFocus).name}`);
     if (ai.strategy.lane) lines.push(`敌方主攻方向：${ai.strategy.lane}`);
     if (ai.strategy.targetFocus) lines.push(`敌方目标侧重：${ai.strategy.targetFocus}`);
+    if (ai.strategy.squad && RTS.Units.get(ai.strategy.squad.type)) {
+      const sq = ai.strategy.squad;
+      lines.push(`敌方分队：${RTS.Units.get(sq.type).name} → ${sq.task}${sq.lane ? ' (' + sq.lane + ')' : ''}`);
+    }
     if (ai.lastDecision) lines.push(`敌方最近决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);
     if (ai.lastDeepseekError) lines.push(`敌方 LLM 状态：${ai.lastDeepseekError}`);
     lines.push(`敌方 LLM 调用次数：${ai.deepseekCount}`);

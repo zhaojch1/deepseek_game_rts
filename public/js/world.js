@@ -239,12 +239,53 @@ RTS.World = (function () {
     }));
   }
 
+  /**
+   * v9：哨塔占用地图瓦片（成为不可通行障碍）。
+   * 建塔时保存被占用瓦片的原状（tower.tiles），销毁时恢复。
+   */
+  function markTowerBlocked(tower) {
+    const world = RTS.world;
+    const Cfg = C();
+    const radTiles = Math.ceil(tower.radius / Cfg.tileSize) + 1;
+    const cx = Math.floor(tower.x / Cfg.tileSize);
+    const cy = Math.floor(tower.y / Cfg.tileSize);
+    tower.tiles = [];
+    for (let dy = -radTiles; dy <= radTiles; dy++) {
+      for (let dx = -radTiles; dx <= radTiles; dx++) {
+        const tx = cx + dx;
+        const ty = cy + dy;
+        if (tx < 0 || ty < 0 || tx >= world.W || ty >= world.H) continue;
+        const px = tx * Cfg.tileSize + Cfg.tileSize / 2;
+        const py = ty * Cfg.tileSize + Cfg.tileSize / 2;
+        if (Math.hypot(px - tower.x, py - tower.y) <= tower.radius * 0.9) {
+          const i = yToIdx(tx, ty);
+          tower.tiles.push({ tx, ty, walkable: world.walkable[i], terrain: world.terrain[i] });
+          world.walkable[i] = 0;
+          world.terrain[i] = Cfg.terrainTypes.road;
+        }
+      }
+    }
+  }
+
+  /** 哨塔销毁：恢复其占用的瓦片为建塔前状态 */
+  function unmarkTowerBlocked(tower) {
+    const world = RTS.world;
+    for (const t of (tower.tiles || [])) {
+      const i = yToIdx(t.tx, t.ty);
+      world.walkable[i] = t.walkable;
+      world.terrain[i] = t.terrain;
+    }
+    tower.tiles = [];
+  }
+
   return {
     create,
     placeBases,
     placeResources,
     markBaseBlocked,
     baseTowerPositions,
+    markTowerBlocked,
+    unmarkTowerBlocked,
     setTile,
     setSym,
     addBlob,
