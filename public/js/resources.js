@@ -143,6 +143,12 @@ RTS.Resources = (function () {
       const faction = st[owner];
       const base = faction.base;
       if (base.firingFlash > 0) base.firingFlash = Math.max(0, base.firingFlash - dt);
+      // 各角塔闪光衰减
+      if (base.towerFlash) {
+        for (let i = 0; i < base.towerFlash.length; i++) {
+          if (base.towerFlash[i] > 0) base.towerFlash[i] = Math.max(0, base.towerFlash[i] - dt);
+        }
+      }
       base.defenseCooldown -= dt;
       if (base.defenseCooldown > 0) continue;
 
@@ -159,9 +165,22 @@ RTS.Resources = (function () {
         candidates.length
       );
       base.defenseCooldown = C().baseDefenseInterval;
-      base.firingFlash = 0.35;
+      base.firingFlash = C().baseTowerFlash;
+      const towers = RTS.World.baseTowerPositions(base);
       for (let i = 0; i < arrows; i++) {
-        RTS.Projectiles.spawnTowerArrow(base, candidates[i], towerDamage(lvl));
+        // 选择离目标最近的角塔发射，塔顶闪光
+        const tgt = candidates[i];
+        let bestT = 0;
+        let bestD = Infinity;
+        for (let t = 0; t < towers.length; t++) {
+          const d = RTS.Unit.distTo(tgt, towers[t].x, towers[t].y);
+          if (d < bestD) {
+            bestD = d;
+            bestT = t;
+          }
+        }
+        if (base.towerFlash) base.towerFlash[bestT] = C().baseTowerFlash;
+        RTS.Projectiles.spawnTowerArrow(base, { kind: 'unit', ref: tgt }, towerDamage(lvl), bestT);
       }
     }
   }

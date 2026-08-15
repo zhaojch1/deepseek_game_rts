@@ -47,6 +47,18 @@ RTS.Input = (function () {
     return null;
   }
 
+  /** 点选自己的城堡（用于设置集结点） */
+  function selectOwnBase(wx, wy) {
+    const st = RTS.state;
+    const base = st.player.base;
+    if (Math.hypot(base.x - wx, base.y - wy) <= base.radius + 6) {
+      st.selection.clear();
+      st.selectedBase = 'player';
+      return true;
+    }
+    return false;
+  }
+
   function formationOffsets(n) {
     const spacing = C().formationSpacing;
     const cols = Math.ceil(Math.sqrt(n));
@@ -120,6 +132,13 @@ RTS.Input = (function () {
       issueAttackMove(wx, wy);
       return;
     }
+    // 优先：点选自己的城堡
+    if (!shift && selectOwnBase(wx, wy)) {
+      RTS.UI && RTS.UI.toast('已选中城堡：右键地面设置出生集结点', 'info');
+      return;
+    }
+    // 点击任意非城堡目标时取消城堡选中
+    st.selectedBase = null;
     const unit = hitTestUnit(wx, wy, 'player');
     if (unit) {
       if (shift) {
@@ -140,6 +159,7 @@ RTS.Input = (function () {
     const minY = Math.min(startWorld.y, endWorld.y);
     const maxY = Math.max(startWorld.y, endWorld.y);
     if (!shift) st.selection.clear();
+    if (!shift) st.selectedBase = null;
     st.player.units.forEach((u) => {
       if (u.hp <= 0) return;
       if (u.x >= minX && u.x <= maxX && u.y >= minY && u.y <= maxY) {
@@ -152,6 +172,17 @@ RTS.Input = (function () {
     const st = RTS.state;
     // 右键下达移动/攻击指令时，取消待命的攻击移动，避免下次左键误触发
     state.attackMovePending = false;
+
+    // 已选中己方城堡：右键设置单位出生集结点
+    if (st.selectedBase === 'player') {
+      const rally = RTS.World.nearestWalkablePx(wx, wy);
+      st.player.base.rallyX = rally.x;
+      st.player.base.rallyY = rally.y;
+      markOrder(rally.x, rally.y, '#4aa8ff');
+      RTS.UI && RTS.UI.toast('出生集结点已更新', 'info');
+      return;
+    }
+
     const enemyUnit = hitTestUnit(wx, wy, 'enemy');
     if (enemyUnit) {
       issueAttackUnit(enemyUnit);
@@ -231,17 +262,26 @@ RTS.Input = (function () {
       // 快捷键（忽略长按重复）
       if (e.repeat) return;
 
+      // 无对局 / 对局未进行中时，忽略游戏快捷键（主菜单/结算界面按这些键不应报错）
+      if (!RTS.state || RTS.state.phase !== 'running') return;
+
       const upper = key.toUpperCase();
       const st = RTS.state;
-      const hotkeys = C().hotkeys;
 
-      if (upper === hotkeys.spear) RTS.UI.orderProduction('spear');
-      else if (upper === hotkeys.sword) RTS.UI.orderProduction('sword');
-      else if (upper === hotkeys.archer) RTS.UI.orderProduction('archer');
-      else if (upper === hotkeys.cavalry) RTS.UI.orderProduction('cavalry');
+      // 生产快捷键：由各单位定义中的 hotkey 字段决定（新增单位无需改此代码）
+      let prodType = null;
+      for (const def of RTS.Units.all()) {
+        if (def.hotkey && def.hotkey.toUpperCase() === upper) {
+          prodType = def.id;
+          break;
+        }
+      }
+
+      if (prodType) RTS.UI.orderProduction(prodType);
       else if (upper === C().attackMoveKey) state.attackMovePending = true;
       else if (key === 'Escape') {
         st.selection.clear();
+        st.selectedBase = null;
         state.attackMovePending = false;
       } else if (key === ' ') {
         e.preventDefault();

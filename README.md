@@ -2,68 +2,58 @@
 
 网页端二维实时策略（RTS）游戏。运行在浏览器中，玩家扮演指挥官，生产古代冷兵器兵种、框选部队、下达移动与攻击指令，占领地图资源点、升级科技，与电脑对手实时对抗。
 
-## 第二阶段（v2）更新
+> 敌方 AI 的战略决策**完全由 DeepSeek 接管**；无 Key / 网络失败时自动降级为极简自动驾驶，游戏始终可玩。
 
-1. **修复 AI 集结后原地反复移动碰撞**：集结/进攻/回防/撤退等低层指令改为「相位切换 + 节流周期」触发，且对已到位的单位不再重复下令；集结点与编队偏移稳定化。AI 部队集结后会像玩家单位一样静止待命。
-2. **单位视觉与动画重做**：纯矢量精细绘制（头盔/盾牌/长矛/弓/马匹/城堡），弓箭手射出会飞行的实体箭矢，近战有挥击/突刺动作，单位死亡有倒地消散动画；HUD 改为 emoji 图标风格并新增资源与科技面板。
-3. **更多资源 + 复杂地图 + 战争复杂化**：新增 `木材`、`石料` 两种资源与金/木/石资源点（**持久控制点**：单位驻守占领，易主后保持，敌方可反夺）；地图加入中央河流与三座桥梁（上/中/下三路）、森林（远程掩体）、山脉、湖泊；新增攻击/护甲/城防三线科技；AI 会派小队占领资源点、多路分兵进攻并自主升级，避免「一波流胡冲」。
-4. **城堡防御机制**：基地变为带四座角塔的城堡，可同时射出多支箭矢自动守护；城防升级可提升箭塔数量与伤害。
+---
 
-## 运行
+## 快速开始
 
 ```bash
 node server.js
 ```
 
-然后浏览器打开 `http://localhost:3000` 即可开始对局（默认端口 3000，可用 `PORT` 环境变量覆盖）。
+浏览器打开 `http://localhost:3000`（默认端口 3000，可用 `PORT` 覆盖）。零依赖，无需 `npm install`，仅需 Node.js ≥ 18。
 
-> 零依赖，无需 `npm install`。仅需 Node.js ≥ 18。
+打开后先进入**主菜单**：从地图列表选择一张地图（小地图「河谷三路」/ 中地图「广域河谷」），点击「开始游戏」。对局结束可「再来一局」（同图重开）或「主菜单」（返回重新选图）。
 
-## DeepSeek AI（可选）
-
-敌方 AI 分两层：
-
-1. **规则层（保底）**：内置策略周期性生产、集结、进攻、回防，无需任何配置即可游玩。
-2. **DeepSeek 指挥官层（增强）**：每 20–30 秒向 DeepSeek 请求一次高层策略，失败/超时自动降级为规则层，不中断游戏。
-
-敌方 AI 采用「指挥态势」状态机，让行为更有层次感：
-
-- **build（发育）** 少量兵力就地扩充
-- **rally（集结）** 部队向集结点收拢成松散编队
-- **harass（试探）** 小规模骚扰，不投入全部兵力
-- **assault（总攻）** 兵力优势时倾巢而出
-- **defend（回防）** 基地被入侵时回救
-- **retreat（撤退）** 兵力劣势时撤回重整
-
-DeepSeek 返回的 `armyFocus`（兵种倾向）与 `aggression`（进攻倾向）作为「指挥官意志」注入状态机，影响生产侧重、进攻节奏与总攻时机；`attackNow` 可强制提前发动总攻。
-
-启用方式：
+### 启用 DeepSeek AI（可选）
 
 ```bash
-# 复制 .env.example 为 .env 并填入 Key
-cp .env.example .env   # Windows: copy .env.example .env
+# Windows: copy .env.example .env
+cp .env.example .env
 # 编辑 .env，设置 DEEPSEEK_API_KEY=sk-...
 node server.js
 ```
 
-API Key 仅保存在后端，绝不出现在前端。
+API Key 仅保存在后端，绝不出现在前端。未配置 Key 时自动进入「降级自动驾驶」。
 
-## 操作
+## 玩法与操作
 
 | 按键 | 功能 |
 | --- | --- |
 | 左键拖拽 | 框选 |
 | 左键点击 | 单选 / 点击空白取消 |
 | 右键 | 移动 / 攻击指定目标 |
+| 点击己方城堡 + 右键 | 设置单位出生集结点 |
 | A + 左键 | 攻击移动 |
-| Q / W / E / R | 生产 长矛兵 / 刀盾兵 / 弓箭手 / 骑兵 |
+| Q / W / E / R / T | 生产 长矛兵 / 刀盾兵 / 弓箭手 / 骑兵 / 弩手 |
 | Shift + 选择 | 追加选择 |
 | Esc | 取消选择 |
 | 空格 | 视角回到基地 |
 | 滚轮 / 方向键 | 缩放 / 平移 |
 | F2 | 切换调试面板（AI 决策来源） |
 
-> 科技升级面板位于屏幕左侧（攻击/护甲用木材、城防用石料）。资源点为**持久控制点**：派部队驻守到易主后，即使离开也持续产出；敌方驻守可反夺。地图中央河流仅三座桥梁可渡，森林为单位提供远程减伤掩体。
+> 生产快捷键由各单位定义里的 `hotkey` 字段动态决定，新增单位会自动获得新键位。
+>
+> 资源点为**持久控制点**：派部队驻守到易主后，即使离开也持续产出；敌方驻守可反夺。科技升级面板位于屏幕左侧（攻击/护甲用木材、城防用石料）。森林为远程减伤掩体，地图中央河流仅桥梁可渡。
+
+## 核心特性
+
+- **单位 skill 化**：每种单位是 `public/js/units/*.js` 下的自包含定义（数值 + 克制 + 标签 + 绘制 + AI 介绍），运行时走 `RTS.Units` 注册表。当前 5 兵种：长矛兵 / 刀盾兵 / 弓箭手 / 弩手 / 骑兵。
+- **地图 skill 化**：每张地图是 `public/js/maps/*.js` 下的自包含定义（尺寸 small/medium/large + 基地 + 通道 + 资源 + 地形生成）。当前 2 张：河谷三路（小）、广域河谷（中）。
+- **DeepSeek 完全接管 AI**：战略状态（`phase`）100% 来自 DeepSeek 的 `stance`/`attackNow`，连续刷新（每 3–6s）；34 种指挥态势作为低层执行器的「指令集」。
+- **资源 / 科技 / 城堡**：金/木/石三资源 + 持久控制点；攻击/护甲/城防三线科技；城堡四角塔自动射箭守护，可升级。
+- **主菜单选图**：开局前选择地图，新增地图自动出现在菜单里。
 
 ## 目录结构
 
@@ -72,250 +62,204 @@ deepseek_game_rts/
 ├── 需求文档.md
 ├── README.md
 ├── package.json
-├── server.js                 # 静态服务器 + /api/ai/command 代理
+├── server.js                 # 静态服务器 + /api/ai/command 代理 + 动态读取单位/地图定义
 ├── .env.example
+├── skills/
+│   ├── create_unit.md        # ★ 如何新增单位（详细指南 + 模板）
+│   └── create_map.md         # ★ 如何新增地图（详细指南 + 模板）
+├── tools/
+│   └── build_intro.js        # 生成 public/data/{units,maps}.md 介绍文件
 └── public/
     ├── index.html
     ├── css/style.css
+    ├── data/
+    │   ├── units.md          # 生成的单位介绍（供 DeepSeek/人类阅读）
+    │   └── maps.md           # 生成的地图介绍
     └── js/
-        ├── config.js         # 所有平衡数值集中于此
-        ├── main.js           # 入口 + 主循环 + 胜负判定
-        ├── input.js          # 鼠标/键盘/框选
-        ├── camera.js         # 相机与视野
-        ├── world.js          # 地图/地形/资源点/基地
-        ├── unit.js           # 单位实体与状态机 + 动画
+        ├── config.js         # 跨单位/跨地图的平衡数值
+        ├── registry.js       # RTS.Units / RTS.Maps 注册表 + 绘制工具库
+        ├── units/            # ★ 单位定义（每单位一个文件）
+        │   ├── spear.js / sword.js / archer.js / crossbow.js / cavalry.js
+        ├── maps/             # ★ 地图定义（每地图一个文件）
+        │   ├── valley_river.js   # 小地图 64×64
+        │   └── wide_river.js     # 中地图 96×96
+        ├── world.js          # 通用地图容器（不含具体地形）
         ├── pathfinding.js    # 网格 A* 寻路
+        ├── camera.js         # 相机与视野
+        ├── unit.js           # 单位实体/状态机（工厂从注册表取定义）
         ├── combat.js         # 空间分桶/索敌/克制/护甲/掩体/尸体
         ├── production.js     # 经济与生产队列
         ├── resources.js      # 资源占领/木石经济/科技升级/城堡防御
         ├── projectiles.js    # 弓箭/塔箭投射物
-        ├── ai.js             # 规则 AI + DeepSeek 指挥官
-        ├── render.js         # 地形/单位动画/城堡/箭矢/小地图
-        └── ui.js             # HUD/面板/提示/升级
+        ├── ai.js             # 敌方 AI（DeepSeek 接管 + 34 态执行器）
+        ├── input.js          # 鼠标/键盘/框选
+        ├── render.js         # 地形/城堡/箭矢/小地图（单位绘制委托给定义）
+        ├── ui.js             # HUD/面板/主菜单（由注册表动态生成）
+        └── main.js           # 入口 + 主循环 + 胜负判定
 ```
 
 ## 调参
 
-所有平衡数值（兵种属性、克制倍率、军费增长、基地耐久、AI 节奏等）集中在 `public/js/config.js`，调参无需改动逻辑代码。
+- **跨单位/跨地图的平衡数值**（军费增长、人口、基地耐久、AI 节奏、投射物速度等）在 `public/js/config.js`。
+- **单个单位的数值/克制/标签**在 `public/js/units/<id>.js`。
+- **单个地图的尺寸/基地/通道/资源**在 `public/js/maps/<id>.js`。
+- 改完单位/地图 `doc` 后运行 `node tools/build_intro.js` 刷新介绍文件。
 
 ---
 
 # 架构与实现逻辑（面向接手者）
 
-> 本文档写给后续接手此项目的 AI 或开发者：说明代码结构、数据流、关键算法与已踩过的坑。改动前请先阅读对应小节。
-
 ## 1. 技术栈与约束
 
-- **后端**：Node.js 内置 `http`/`https` 模块，**零依赖**（无 `npm install`）。
+- **后端**：Node.js 内置 `http`/`https` 模块，**零依赖**。
 - **前端**：HTML5 Canvas 2D + 原生 JS，**无构建步骤**（直接 `<script>` 顺序加载）。
 - **全局命名空间**：`window.RTS`，所有模块挂载为 `RTS.xxx`（IIFE 单例）。
-- **模块加载顺序**（`index.html` 中严格规定，**不可调换**，因为 `main.js` 的 boot IIFE 依赖所有前置模块已定义）：
+- **模块加载顺序**（`index.html` 严格规定，不可调换）：
 
 ```
-config → world → pathfinding → camera → unit → combat → production → resources → projectiles → ai → input → render → ui → main
+config → registry → units/* → maps/* → world → pathfinding → camera → unit
+→ combat → production → resources → projectiles → ai → input → render → ui → main
 ```
+
+> 新增单位/地图时，把新 `<script>` 加在 `registry.js` 之后、`world.js` 之前即可。
 
 ## 2. 全局状态：`RTS.state`
 
-唯一的对局状态对象，由 `main.js` 的 `RTS.Match.createState()` 创建，挂在 `RTS.state`。结构：
+由 `RTS.Match.createState()` 创建，挂在 `RTS.state`。`RTS.state` 为 `null` 表示「主菜单阶段」（未开局）。
 
 ```js
 RTS.state = {
-  time,            // 对局秒数
-  phase,           // 'running' | 'victory' | 'defeat' | 'draw'
-  fps,             // 由主循环统计
-  debugMode,       // true（F2 切换调试面板显示）
-  player: Faction, // 己方
-  enemy:  Faction, // 敌方
-  selection: Set,  // 玩家当前选中的单位 id 集合
-  damageNumbers: [], // 飘字数组
-  resources: { nodes: [...] }, // 资源点（金/木/石），每项 {id,type,x,y,radius,owner,playerWeight,enemyWeight}
-  corpses: [],     // 死亡动画尸体（纯渲染）
-  ai: RTS.AI.init(), // AI 内部状态
-  orderMarker,     // 最近一次移动/攻击指令的落点标记（渲染淡出）
+  time, phase,        // 'running' | 'victory' | 'defeat' | 'draw'
+  fps, debugMode,
+  player: Faction, enemy: Faction,
+  selection: Set,     // 玩家选中单位 id
+  selectedBase,       // 'player' 表示选中己方城堡（设置集结点）
+  damageNumbers: [], resources: { nodes: [...] }, corpses: [],
+  ai: RTS.AI.init(),
+  orderMarker,        // 指令落点标记
 }
 
 Faction = {
-  owner: 'player' | 'enemy',
-  gold, goldRate,           // 金币：被动增长 + 金矿节点
-  wood, woodRate,           // 木材：伐木场节点产出，用于攻击/护甲升级
-  stone, stoneRate,         // 石料：采石场节点产出，用于城防升级
-  populationCap,
-  base: { x, y, hp, maxHp, radius, owner, defenseCooldown, firingFlash },
-  productionQueue: [ProductionOrder],
-  units: Map<id, Unit>,    // 注意是 Map，不是数组
-  upgrades: { attack, armor, defense }, // 三线科技等级（0..upgradeMaxLevel）
+  owner, gold/goldRate, wood/woodRate, stone/stoneRate,
+  populationCap, productionQueue: [], units: Map<id, Unit>,
+  base: { x, y, hp, maxHp, radius, owner, defenseCooldown, towerFlash[4], rallyX, rallyY },
+  upgrades: { attack, armor, defense },
 }
-
-// 另外两个模块级全局：
-RTS.world  // 由 World.create() 生成，含 walkable Uint8Array + terrain Uint8Array + W/H 尺寸
-RTS.CONFIG // 平衡常量（config.js）
 ```
 
-**关键约定**：单位用 `Map<id, Unit>` 存储；遍历单位一律通过 `RTS.Combat.forEachUnit(fn)` 或 `Combat.query(x,y,r)`（空间分桶），**不要直接全量双重循环**。
+另外两个模块级全局：`RTS.world`（`World.create()` 产物，含 `walkable`/`terrain` 扁平数组 + `W/H/mapId`）、`RTS.CONFIG`。
 
-## 3. 模块职责与关键实现
+**关键约定**：单位用 `Map<id, Unit>`；遍历单位一律走 `RTS.Combat.forEachUnit` 或 `Combat.query(x,y,r)`（空间分桶），不要直接双重循环。
+
+## 3. 模块职责
 
 ### server.js（后端）
-- 静态文件服务：只允许访问 `public/` 内的文件，`path.normalize` + 前缀校验防目录穿越。
-- `POST /api/ai/command`：接收战场摘要 JSON，转发 DeepSeek，返回 `{ok, decision, source}` 或降级 `{ok:false, reason}`。
-- `GET /api/health`：返回 `{ok, hasKey, model}`，用于确认 Key 是否加载。
-- 读取 `.env`（`loadEnvFile`），Key 只存后端，**绝不出现在前端**。
-- 关键参数：`DEEPSEEK_MODEL`（默认 `deepseek-v4-flash`）、`AI_TIMEOUT_MS`（默认 8000）、**已关闭 thinking/思考模式**。
-- `extractJson`：稳健地从模型输出提取 JSON（兼容 markdown 代码块包裹、前后杂文字）。
-- `clampDecision`：校验/归一化 `armyFocus`（spear/sword/archer/cavalry）、`aggression`（0-100）、`attackNow`、`comment`。
 
-### config.js（唯一调参处）
-所有数值集中于此。**设计值的单位换算**（易踩坑）：
+- 静态文件服务（防目录穿越）；`POST /api/ai/command` 转发 DeepSeek；`GET /api/health`。
+- `loadDefinitions()`：启动时用 Node `vm` 沙箱求值 `units/*.js` 与 `maps/*.js`，得到单位/地图元信息（剥离 `draw`/`generate`），据此**动态生成系统提示**（注入全部单位/地图 `doc`）并动态得到 `VALID_ARMY_FOCUS`——新增内容后 AI 提示与校验自动跟随。
+- `extractJson` / `clampDecision`：稳健提取并校验 `armyFocus`（动态单位 id）、`stance`（34 态）、`lane`（top/mid/bottom）、`targetFocus`（base/army/econ）、`aggression`、`attackNow`、`comment`。
 
-- `range`（兵种射程）是「格」单位 → 实际像素射程 = `range * rangeScale(34)`，经 `RTS.rangePx(type)` 换算。
-- `speed`（移速）是「格/秒」→ 实际像素速度 = `speed * speedScale(48)`，在 `Unit.create` 里换算。
-- 克制表 `counters`：行=攻击方，列=受击方，值>1 克制、<1 被克制。
-- **v2 新增分组**：`terrainTypes`（地形枚举）、`resourceNodes`（金/木/石收入与半径）、`captureSpeed`（占领速度）、`upgrades`（三线科技成本/加成）、`baseDefense*`（城堡箭塔射程/伤害/箭数/间隔）、`arrowSpeed`/`towerArrowSpeed`（投射物速度）、`coverRangedMul`（森林掩体）、`corpseDuration`（死亡动画时长）。
+### registry.js（注册表）
 
-### world.js（地图/地形/资源点）
-- `walkable` 是扁平 `Uint8Array`，索引 `idx = y * W + x`；`terrain` 是同尺寸的 `Uint8Array`（`terrainTypes`：0 草地 / 1 水域 / 2 森林 / 3 岩石 / 4 道路）。
-- 地图完全确定性：中央纵向河流（4 格宽）配三座桥梁，把战场切为上/中/下三路；另有湖泊、山脉、森林（掩体）、中央大道，左右镜像对称保证公平。
-- `isCoverPx(x,y)`：是否处于森林掩体（远程伤害减伤，见 `coverRangedMul`）。
-- `placeResources()`：对称生成金矿/伐木场/采石场资源点，返回 nodes 数组（存入 `RTS.state.resources`）。
-- `markBaseBlocked`：基地占位区标记不可通行（地形记为道路，供城堡绘制）。
-- 玩家基地在左侧（x=9 格），敌方在右侧（x=W-9 格），y 居中。
-- `nearestWalkablePx(x,y)`：把不可通行的目标点吸附到最近可通行格中心（移动/攻击目标都要先过这个）。
+- `RTS.Units`：`register/get/has/all/ids/rangePx/counterMul/toDoc`；`counterMul(a,b)` 从攻击方 `bonusVs[b]` 取克制倍率（默认 1.0）。
+- `RTS.Maps`：`register/get/activate/current/toDoc`；`current()` 返回 `config.defaultMap` 指定的地图。
+- `RTS.Units.drawKit`：通用图元（`PAL`/`tunic`/`tunicDark`/`humanoid`/`mount`），供单位 `draw` 复用。
+
+### units/\*.js 与 maps/\*.js（自包含定义）
+
+详见 `skills/create_unit.md` 与 `skills/create_map.md`。新增单位/地图只加文件 + 一行 `<script>`，底层零改动。
+
+### config.js（跨实体调参）
+
+- `range`/`speed` 是「格」设计值，实际换算在 `RTS.Units.rangePx` 与 `RTS.Unit.create`（`rangeScale=34`/`speedScale=48`）。
+- 保留 `terrainTypes`、`resourceNodes`、`captureSpeed`、`upgrades`、`baseDefense*`、`arrowSpeed`/`towerArrowSpeed`、`coverRangedMul`、AI 节奏、`defaultMap` 等。`worldWidth/worldHeight` getter 从 `RTS.world` 动态取值。
+
+### world.js（通用地图容器）
+
+- `create(map)`：按定义尺寸建数组 + 调 `map.generate(world)`。
+- `placeBases(map)` / `placeResources(map)`：按定义生成基地/资源点。
+- 通用查询 `isWalkable/isWalkablePx/terrainAt/nearestWalkablePx/clampPx/markBaseBlocked/baseTowerPositions`，全部从 `RTS.world` 取尺寸。
+- 供地图定义使用的落子工具 `setTile/setSym/addBlob`（`setSym`/`addBlob` 左右镜像）。
 
 ### pathfinding.js（A*）
-- 网格 A*，8 方向（斜向 cost 1.4142），带**拐角防穿墙**（斜移时检查两个相邻轴格子）。
-- `findPath(start, goal)` 返回世界坐标 waypoint 数组。
-- `hasLineOfSight(x1,y1,x2,y2)`：步进采样直线是否全程可通行，供移动平滑用。
 
-### camera.js（相机）
-- 世界坐标 ↔ 屏幕坐标：`worldToScreen`/`screenToWorld`（**所有鼠标交互必须走 screenToWorld 反算**）。
-- 缩放（滚轮）、平移（方向键 + 鼠标边缘滚动）、`clamp` 限制中心范围。
+8 方向网格 A*，拐角防穿墙；`findPath` 返回世界坐标 waypoints；`hasLineOfSight` 用于路径平滑。
 
-### unit.js（单位状态机）—— **核心，改动最多的地方**
-单位状态：`idle | move | attack | attackMove`。
+### unit.js（单位实体/状态机）
 
-- **移动**：`orderMove` 算 A* 路径，`moveAlongPath` 每帧朝「前瞻距离(`pathLookahead=420`)内最远的视线可达路点」直行（LOS 平滑转向，避免逐格走锯齿）。
-- **卡住检测**：用 0.5s 窗口的**净位移**判断（`stuckTimer`/`stuckRef`/`isStuck`），避免把分离力震荡误判。真正卡住且被敌人挡时，`move` 状态会转 `attackMove` 清障后继续。
-- **驻守点（hold）机制**：每个单位有 `holdX/holdY`。出生时=出生点；`orderMove`/`orderAttackMove` 都会更新为目标点。`idle` 状态下的自动索敌是「驻守反击」——先索敌追击，敌人死后归位到 hold 点。这使 AI 集结的部队能保持阵形，不散乱跑满全图。
-- **右键移动 = 无条件前进**：`move` 状态途中**不自动索敌**，保证玩家随时可改向/掉头（这是早期 bug 修复的重点）。
-- **攻击**：`engage` 在射程内进入前摇（`attackWindup`）→ 前摇结束结算；`attackCooldown` 控制攻速。
-- **近战 vs 远程结算差异**：前摇结束时，近战直接 `Combat.deliverAttack`（立即伤害 + 挥击动画），远程（`ranged`）则 `Projectiles.spawnArrow` 射出实体箭矢，命中后结算。
-- **动画状态**：`animPhase`（行走摆动）、`attackAnim`（挥击/拉弓后摇）、`facingX`（朝向，由 `steerToward`/`engage` 更新）。
-- **`attackMove`**：沿途自动索敌（`attackMoveAcquireRadius=280`），到达后落位驻守转 `idle`。
+状态 `idle | move | attack | attackMove`。`Unit.create(owner, typeId, x, y)` 是工厂（从 `RTS.Units.get(typeId)` 取定义）；`typeStats(id)` 即 `RTS.Units.get(id)`。
 
-### combat.js（战斗/索敌/分离/伤害）
-- **空间分桶**：`rebuildHash()` 每帧按 `spatialCellSize=96` 把单位塞进 Map 桶，`query(x,y,r)` 邻域查询，避免 O(n²)。
-- **索敌 `acquire(unit, range)`**：返回最近敌方目标，优先单位，其次基地（在 range+baseRadius 内）。
-- **伤害结算（v2 重构）**：`applyUnitDamage(attackerType, attackValue, target, isRanged)` 统一处理「克制 × 森林掩体（远程）− 护甲减伤」，最低 1；`hitBase` 处理基地伤害（`baseDamageMultiplier=0.6`）；`deliverAttack` 供近战单位直接调用，远程走 `Projectiles`。
-- **有效攻击力**：`RTS.Resources.effectiveAttack(unit)` = 基础攻击 × (1 + 攻击科技 × `mul`)，近战与弓箭都在结算前换算。
-- **单位分离**：`applySeparation` 相邻单位互斥，防堆叠。
-- **死亡/尸体**：`kill` 从 `faction.units` Map 删除、从 player `selection` 移除，并向 `state.corpses` 推入尸体；`ageCorpses` 老化，供死亡动画渲染。
+- **移动**：`followPath(unit, tx, ty, dt)` 朝「前瞻距离内最远的可见路点」直行（LOS 平滑）；`pathGoalX/Y` 记录路径目标，偏离超 `repathTargetDelta` 强制重算。
+- **跨障碍绕行**：`engage` 追击走 `seekToward`——直线可达则直追，否则 A* 绕行（解决「卡在河岸边」）。
+- **卡住检测**：0.5s 净位移判断；`move` 被敌人挡时转 `attackMove` 清障。
+- **驻守点 hold**：idle 自动反击后归位到 `holdX/holdY`，保证 AI 集结阵形。
+- **近战 vs 远程**：远程前摇结束 `Projectiles.spawnArrow`（射实体箭），近战 `Combat.deliverAttack`。
+- **动画字段**：`animPhase/attackAnim/facingX/aimAngle`（远程瞄准俯仰角）。
 
-### production.js（经济与生产）
-- 被动军费：`currentGoldRate(time)` = base(5) + 每 60s +0.5，封顶 10，军费上限 2000。
-- 生产队列 FIFO，`queued→training`，训练完成 `spawnUnit`（基地附近随机偏移出生）。
-- `usedPop = units.size + productionQueue.length`（**排队也占人口**），人口上限 100。
-- 取消：`queued` 全额返还，`training` 返还 50%（`cancel` 函数，目前 UI 未暴露取消入口）。
+### combat.js / production.js / resources.js / projectiles.js
 
-### resources.js（资源/科技/城堡防御）
-- **占领 `captureUpdate(dt)`**：资源点采用**持久控制点**模型——每个节点有一个控制值 `control ∈ [-1,1]`，单位驻守时向己方方向推进，越过 `captureThreshold`（±0.5）即易主；**易主后即使部队离开也保持归属**，只有敌方驻守才能反夺；双方同在（争夺）或无人（已占）时保持。节点类型 `gold/wood/stone`。
-- **收入 `incomeUpdate(dt)`**：按节点归属给对应阵营加金币/木材/石料；同时汇总各资源速率供 HUD 显示（金币速率 = 被动 + 金矿）。
-- **升级 `upgrade/canUpgrade/upgradeCost`**：`attack`（木，攻击倍率）、`armor`（木，固定减伤）、`defense`（石，城堡箭塔 + 耐久）。城防升级时基地 `maxHp` 与当前 `hp` 同步增加。
-- **城堡防御 `baseDefenseUpdate(dt)`**：每个基地有 `defenseCooldown`，到点后在 `baseDefenseRange` 内取最近的敌方单位，一次射出 `baseDefenseArrows + 城防等级×arrowsPerLevel` 支塔箭（`Projectiles.spawnTowerArrow`），伤害随城防等级放大。
-- **有效攻击力 `effectiveAttack(unit)`**：被 `combat.js` 调用。
+- **combat**：空间分桶；`acquire` 索敌；`applyUnitDamage` 统一「克制 × 森林掩体 − 护甲减伤」；克制经 `RTS.Units.counterMul` 动态取；`kill` 生成尸体。
+- **production**：被动军费 + FIFO 队列；`spawnUnit` 从城堡城门出生并 `orderAttackMove` 前往基地 `rallyX/rallyY` 集结点。
+- **resources**：资源点持久控制；三线升级；城堡防御从离目标最近的角塔射塔箭（`towerFlash` 闪光）。
+- **projectiles**：实体箭/塔箭，`spawnArrow`/`spawnTowerArrow` 的 `target` 必须是 `{kind, ref}` 包装对象。
 
-### projectiles.js（投射物）
-- 全局 `list` 保存飞行中的箭矢/塔箭：`{x,y,target,speed,damage,attackerType,owner,kind:'arrow'|'tower',angle,trail}`。
-- `spawnArrow(unit, target)`：弓箭手前摇结束时射出（伤害=有效攻击力）；`spawnTowerArrow(base, target, damage)`：城堡箭塔射出。
-- `update(dt)`：追踪目标当前位置；目标已死亡则落空消失；命中后调用 `Combat.applyUnitDamage(... isRanged=true)` 或 `Combat.hitBase`。
-- `clear()`：对局重置时清空。
+### ai.js（敌方 AI）—— DeepSeek 完全接管
 
-### ai.js（敌方 AI）—— **双层结构**
-1. **规则层（保底）**：高层「指挥态势」状态机 + 低层单位指令。
-2. **DeepSeek 指挥官层**：每 20-30s 异步 `fetch('/api/ai/command')` 一次，失败自动降级，不阻塞主循环。
+- **战略状态 100% 由 DeepSeek 决定**：`applyDecision` 把 `decision.stance` 直接写成当前 `phase`；已移除规则层 `evaluatePhase`。
+- **连续刷新**：开局立即请求，之后每 `aiDecisionIntervalMin~Max`（默认 3–6s）连续刷新。
+- **降级兜底**：仅当 DeepSeek 从未成功（`deepseekEverActive === false`）时走极简 `degradedPilot`（build → rally → all_in，基地受威胁 defend）；一旦接管，规则永不再参与。
+- **34 态 `PHASE` 是执行器指令集**（`executePhase` 落地为低层指令，非决策）：
 
-**指挥态势状态机（`PHASE`）**：`build → rally → harass → assault / defend → retreat`，每 0.5s `evaluatePhase()` 评估一次（防高频抖动）：
+| 类别 | 态势 |
+| --- | --- |
+| 经济 | build / boom / tech / eco_defend |
+| 侦查 | scout / scout_hold / counter_scout |
+| 地图控制 | capture_gold / capture_wood / capture_stone / capture_expand / node_garrison |
+| 集结 | rally / rally_hold / reinforce |
+| 骚扰 | harass / harass_flank / harass_econ |
+| 进攻 | assault_mid / assault_top / assault_bottom / all_in / pincer / feint / siege |
+| 防守 | defend / defend_choke / defend_node / counter_attack / fallback |
+| 撤退重整 | retreat / regroup / turtle / ambush |
 
-| 态势 | 进入条件 | 行为 |
-| --- | --- | --- |
-| build | 兵力 <4 | 就地发育 |
-| rally | 兵力 ≥4 但不足以进攻 | 向集结点收拢成编队 |
-| harass | 兵力 ≥ `aiHarassThreshold` | 小规模骚扰（投 75% 兵力，留后备）|
-| assault | 兵力 ≥ 敌方 `aiAssaultRatio(0.75)` 或达阈值 | 倾巢总攻 |
-| defend | 基地附近入侵者 ≥ `aiDefenseIntruders(3)` | 回防迎击 |
-| retreat | 兵力 <敌方 `aiRetreatThreshold(0.45)` | 撤回基地重整 |
+- DeepSeek 决策字段：`armyFocus`（生产侧重，权重 +20）、`aggression`、`stance`（唯一状态来源）、`lane`、`targetFocus`、`attackNow`。
+- 低层指令**必须节流**（`phaseChanged` + 各 timer），已到位单位跳过，避免「原地反复移动碰撞」。
+- `attackLanes`/`defendChoke`/`scout` 等均从 `RTS.Maps.current().lanes` 读通道；`decideProductionType` 按单位 `ai.weight`/`tags` 动态加权。
 
-**DeepSeek 决策如何注入**（`applyDecision`）：
-- `armyFocus` → 生产侧重（`decideProductionType` 中指定兵种权重 +20，**远高于规则反制的 +4**，避免被覆盖）。
-- `aggression` → 影响总攻阈值、攻击波冷却。
-- `attackNow` → 强制提前进入 `assault`（兵力足够）或 `rally`（兵力不足）。
+### input.js / render.js / ui.js / main.js
 
-⚠️ **重要**：`requestDeepSeek` 的 payload 里带了 `phase`（当前态势），供模型决策参考。若改 prompt 或字段，注意服务端 `clampDecision` 与前端 `applyDecision` 同步。
+- **input**：框选/单选/右键/攻击移动；生产快捷键由单位 `hotkey` 动态决定；城堡选中 + 右键设集结点；相机方向键平移。
+- **render**：地形/城堡（逐塔闪光 + 集结点旗帜）/资源/尸体/箭矢/小地图；单位绘制委托 `def.draw(ctx, view)`；小地图**惰性构建**（`RTS.world` 就绪后）。
+- **ui**：HUD、生产面板（按钮由 `RTS.Units.all()` 动态生成）、升级面板、选中信息、toast、结束覆盖层、**主菜单**（地图卡片由 `RTS.Maps.all()` 动态生成）。
+- **main**：boot 只做 `UI.init → Render.init → Input.init` 并显示主菜单（不自动开局）；主循环 `if (RTS.state)` 守卫，`running` 阶段固定步长 `STEP=1/60` 模拟 + 实时渲染。
 
-**v2 低层指令（修复集结打转 + 复杂化）**：
-- 集结/进攻/回防/撤退只在 `phaseChanged` 或节流周期触发；`rally()` 用稳定的集结点 + 网格编队偏移，且对已到位（< `formationSpacing×0.9`）的单位跳过，避免原地反复移动碰撞。
-- `launchAttack()` 按兵力把部队拆成 1/2/3 路（上/中/下）推进。
-- `captureNodes()` 在 build/harass 阶段派小队去占点；`aiUpgrade()` 周期用木/石升级（城防优先，攻击/护甲交替）。
+**主循环顺序**：`Production → AI → Combat.rebuildHash → Resources.captureUpdate → Resources.incomeUpdate → Resources.baseDefenseUpdate → units → Projectiles.update → separation → damageNumbers → corpses → checkEnd`。
+**胜负**：任一方基地 hp≤0 即胜/负；20 分钟封顶按「兵力×10 + 基地耐久」判平/胜。
 
-### input.js（交互）
-- 左键框选/单选/Shift 追加；右键移动/攻击；A+左键攻击移动；Q/W/E/R 生产。
-- **注意**：相机平移用方向键，不用 WASD（W 被生产快捷键占用）。空格回基地。
-- 多单位移动用 `formationOffsets` 生成松散编队偏移（按矩阵排列）。
+## 4. 常见坑（接手必读）
 
-### render.js / ui.js
-- `render.js`：地形（草地/水域/森林/山脉/道路分块绘制）、城堡（四角塔 + 城门 + 旗帜 + 塔箭闪光）、资源点、精细矢量单位（头盔/盾牌/长矛/弓/马匹 + 行走/攻击动画）、尸体、实体箭矢、血条/选中圈/飘字/指令标记、小地图（地形预渲染到离屏 canvas）。**裁剪**只画视野内对象。
-- `ui.js`：HUD（金币/木材/石料/人口/时间/AI来源）、生产面板、**科技升级面板**、选中信息、toast、结束覆盖层、F2 调试面板（含资源与升级等级）。
+1. **`range`/`speed` 是「格」单位**，实际像素 = 设计值 × scale，别把像素值直接填进单位定义。
+2. **右键移动不索敌**是有意的（移动就是移动，攻击用 A/右键点敌人）。
+3. **驻守点 hold** 依赖 `orderMove/orderAttackMove` 更新 `holdX/holdY`；新加移动指令入口务必同步更新 hold。
+4. **空间分桶每帧 rebuild**：`Combat.rebuildHash()` 必须在单位 update 之前调用。
+5. **投射物目标必须是 `{kind, ref}` 包装对象**：v2 曾把裸单位直接传 `spawnTowerArrow`，导致 `target.ref` 为 undefined、塔箭一出生就消失。
+6. **AI 低层指令必须节流**：否则重现「集结后原地反复移动碰撞」。
+7. **伤害结算统一走 `Combat.applyUnitDamage`**，才能正确吃到克制/掩体/护甲。
+8. **资源点是持久控制点**：易主后离开不回退，仅敌方驻守可反夺。
+9. **`.env` 绝不提交**；服务端超时 8s；DeepSeek 只在 `phase==='running'` 时调用。
+10. **主菜单阶段 `RTS.world`/`RTS.state` 为空**：渲染/输入初始化不要读它们（小地图已改为惰性构建，键盘已加守卫）。
 
-### main.js（主循环）
-```
-boot(): UI.init → Match.start → Render.init → Input.init
-frame(): 固定步长 STEP=1/60 模拟
-  Production → AI → Combat.rebuildHash → Resources.captureUpdate → Resources.incomeUpdate
-  → Resources.baseDefenseUpdate → units → Projectiles.update → separation → damageNumbers → corpses → checkEnd
-  + 实时渲染 + Input/UI 每帧 update
-```
-胜负判定 `checkEnd`：任一方基地 hp≤0 即胜/负；20 分钟封顶按「兵力×10 + 基地耐久」判平/胜。
+## 5. 扩展指南
 
-## 4. 已知的设计决策与坑（接手必读）
+新增单位 → 见 [`skills/create_unit.md`](skills/create_unit.md)；新增地图 → 见 [`skills/create_map.md`](skills/create_map.md)。
 
-1. **单位速度/射程的单位换算**：新增兵种或调参时，`config.js` 里 `speed`/`range` 是「格」单位，实际乘法在 `unit.js`/`config.js` 的 scale 处理，别把像素值直接填进去。
-2. **右键移动不索敌**是有意的（RTS 语义：移动就是移动，攻击用 A/右键点敌人）。若想让移动单位自动还击，改 `unit.js` 的 `move` 分支，但会破坏「随时改向」体验。
-3. **驻守点 hold 机制**依赖 `orderMove/orderAttackMove` 会更新 holdX/holdY；若新加移动指令入口（如补丁/技能），务必同步更新 hold，否则单位会回到错误锚点。
-4. **AI 生产决策的权重**：DeepSeek `armyFocus` 权重 `+20` 是刻意远大于规则反制 `+4`，保证指挥官决策优先。调这俩数值会影响「AI 是否听指挥」。
-5. **空间分桶必须每帧 rebuild**：`main.js` 主循环里 `Combat.rebuildHash()` 在单位 update 之前调用。若移动了单位但忘了 rebuild，`query`/`acquire` 会漏单位。
-6. **`.env` 绝不提交**（`.gitignore` 已排除）。真实 Key 只应存在于云端 `.env`，`.env.example` 是模板。
-7. **服务端超时用 8s**（原需求写 5s，实测 flash 冷启动偶发超 5s）。失败走 `degraded` 降级，前端静默转规则 AI。
-8. **DeepSeek 只在对局 running 阶段调用**（`maybeRequestDeepSeek` 检查 `phase==='running'`），主菜单/暂停不调用，控成本。
-9. **AI 低层指令必须节流**：`rally/defend/retreat/launchAttack` 若每帧都下达会重现「原地反复移动碰撞」。当前用 `phaseChanged` + `rallyTimer`/`commandTimer`/`nextAttackTime` 节流，且对已到位单位跳过。新增 AI 行为时务必沿用该模式。
-10. **伤害结算统一走 `Combat.applyUnitDamage`**：近战（`isRanged=false`）、弓箭/塔箭（`isRanged=true`）都要经过它，才能正确吃到克制/森林掩体/护甲减伤。不要另写一套扣血逻辑。
-11. **投射物目标引用是活对象**：`Projectiles` 里 `target.ref` 指向单位/基地对象，命中时再判 `hp>0`；单位死亡后会被移出 `units` Map，但对象仍在内存中，投射物通过 `hp<=0` 判断落空消失。
-12. **资源点是持久控制点**：控制值 `control ∈ [-1,1]` 越过 `captureThreshold` 才易主，**易主后离开不回退**（仅敌方驻守可反夺）。测试资源收入时让单位在节点半径内驻守到易主，之后移开仍持续产出。
+## 6. 无头验证
 
-## 5. 如何快速验证（无头模拟）
+项目用 Node + `vm` 沙盒做无头测试（stub 掉 DOM/fetch/requestAnimationFrame）。按加载顺序 `config → registry → units/* → maps/* → world → pathfinding → camera → unit → combat → production → resources → projectiles → ai` 加载，然后 `RTS.Maps.activate(id)` → `World.create/placeBases/placeResources` → 手动构造 `RTS.state`（记得带 `upgrades/wood/stone/resources.nodes/corpses` 字段）→ 逐 STEP 驱动 `Production/AI/Combat.rebuildHash/Resources.captureUpdate/incomeUpdate/baseDefenseUpdate/Unit.update/Projectiles.update/Combat.*`。
 
-项目早期用 Node + `vm` 沙盒做无头测试（stub 掉 DOM/fetch/requestAnimationFrame），可复刻此模式验证逻辑而不开浏览器：
+## 7. 版本历程
 
-```js
-// 伪代码：在 vm 沙盒里按顺序加载 config→world→pathfinding→camera→unit→combat→production→resources→projectiles→ai，
-// 然后手动设 RTS.state、驱动 Production/AI/Combat.rebuildHash/Resources.captureUpdate/Resources.incomeUpdate/
-// Resources.baseDefenseUpdate/Unit.update/Projectiles.update/Combat.* 逐 STEP 跑。
-// 需 stub window.RTS、fetch、RTS.UI.toast。
-```
-
-要点：`RTS.state` 需手工构造（`Match.createState` 依赖 DOM，纯逻辑测试可手动 mkFaction，记得带 `upgrades`/`wood`/`stone`/`resources.nodes`/`corpses` 字段）；`RTS.world` 需先 `World.create()` + `placeBases()` + `placeResources()`。
-
-## 6. 需求文档映射（验收对照）
-
-需求文档 `需求文档.md` 的 AC-01 ~ AC-09 均已实现，v2 在此基础上新增：
-
-- ✅ 资源系统（金/木/石三资源 + 地图资源点占领）。
-- ✅ 复杂地图（河流三路 + 森林掩体 + 山脉/湖泊/道路）。
-- ✅ 科技升级（攻击/护甲/城防三线）。
-- ✅ 城堡防御（基地箭塔自动守护，可升级）。
-- ✅ 单位动画（弓箭飞行、近战挥击、死亡倒地）与 HUD 美化。
-
-**尚未实现/可扩展点**：
-
-- 生产队列的**取消**逻辑已写（`Production.cancel`）但 **UI 未暴露取消按钮**。
-- 音效/背景音乐、AI 难度分档、多人联机 —— 需求文档「待确认事项」，未实现。
-- 基地「随时间获得轻微防御修正」（R-003）的 `baseDefensePerMin` 仍为 0（v2 用「城防科技」实现了主动防御，而非随时间自动加防）。
+- **v2**：资源/科技/城堡防御 + 复杂地图（河流三路）+ 单位动画。
+- **v3**：美术打磨（弓箭瞄准/城堡塔箭/集结点）+ AI 状态机扩容 34 态。
+- **v4**：单位/地图 skill 化（自包含定义 + 注册表）+ DeepSeek 动态读取定义生成提示与校验 + `tools/build_intro.js` 介绍文件。
+- **v5**：训练时间缩短为 1/3 + AI 状态完全由 DeepSeek 接管（连续刷新）。
+- **v6**：新增中地图「广域河谷」+ 主菜单地图选择 + 新单位「弩手」。

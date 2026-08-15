@@ -15,36 +15,45 @@ RTS.Projectiles = (function () {
     list.push(proj);
   }
 
-  /** 弓箭手射箭 */
+  /** 弓箭手射箭（出生即瞄准目标方向） */
   function spawnArrow(unit, target) {
+    const sx = unit.x + unit.facingX * unit.radius * 0.6;
+    const sy = unit.y - unit.radius * 0.4;
+    const tx = target.ref.x;
+    const ty = target.ref.y;
     spawn({
-      x: unit.x + unit.facingX * unit.radius * 0.6,
-      y: unit.y - unit.radius * 0.4,
+      x: sx,
+      y: sy,
       target,
       speed: C().arrowSpeed,
       damage: RTS.Resources.effectiveAttack(unit),
       attackerType: unit.type,
       owner: unit.owner,
       kind: 'arrow',
-      angle: 0,
+      angle: Math.atan2(ty - sy, tx - sx),
       trail: [],
     });
   }
 
-  /** 城堡箭塔射箭 */
-  function spawnTowerArrow(base, target, damage) {
-    const ang = Math.random() * Math.PI * 2;
+  /** 城堡角塔射箭：从指定角塔位置朝目标射出 */
+  function spawnTowerArrow(base, target, damage, towerIndex) {
+    const towers = RTS.World.baseTowerPositions(base);
+    const idx = towerIndex !== undefined ? towerIndex : 0;
+    const src = towers[idx % towers.length];
+    const tx = target.ref.x;
+    const ty = target.ref.y;
     spawn({
-      x: base.x + Math.cos(ang) * base.radius * 0.4,
-      y: base.y - base.radius * 0.35 + Math.sin(ang) * 8,
+      x: src.x,
+      y: src.y - base.radius * 0.2,
       target,
       speed: C().towerArrowSpeed,
       damage,
       attackerType: 'tower',
       owner: base.owner,
       kind: 'tower',
-      angle: 0,
+      angle: Math.atan2(ty - src.y, tx - src.x),
       trail: [],
+      source: src, // 用于渲染发射轨迹
     });
   }
 

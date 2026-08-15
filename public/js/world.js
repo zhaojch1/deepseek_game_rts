@@ -1,7 +1,10 @@
 'use strict';
 
 /**
- * world.js — 地图与静态实体（可行走网格、地形、障碍、基地、资源点）
+ * world.js — 通用地图容器与静态实体
+ *
+ * v4 起：具体地形由 js/maps/*.js 的地图定义（map.generate）填充，本模块只提供
+ * 通用容器与查询/占位/基地/资源工具，不包含任何地图具体地形。
  *
  * 地形类型（terrain 网格）：
  *   0 grass  草地（可通行）
@@ -15,26 +18,28 @@ RTS.World = (function () {
   const C = () => RTS.CONFIG;
   const T = () => RTS.CONFIG.terrainTypes;
 
-  function create() {
-    const W = C().mapWidthTiles;
-    const H = C().mapHeightTiles;
+  /** 创建一个空世界容器，并调用地图定义的 generate 填充地形。 */
+  function create(map) {
+    const W = map.width;
+    const H = map.height;
     const walkable = new Uint8Array(W * H).fill(1);
     const terrain = new Uint8Array(W * H).fill(T().grass);
-    const world = { W, H, walkable, terrain };
-
-    generateTerrain(world);
+    const world = { W, H, walkable, terrain, mapId: map.id };
+    if (typeof map.generate === 'function') map.generate(world);
     return world;
   }
 
   function yToIdx(x, y) {
-    return y * C().mapWidthTiles + x;
+    return y * RTS.world.W + x;
   }
+
+  // ---------------------------------------------------------------- 供地图定义使用的落子工具
 
   function setTile(world, tx, ty, terrain, walkable) {
     const W = world.W;
     const H = world.H;
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return;
-    const i = yToIdx(tx, ty);
+    const i = ty * W + tx;
     world.terrain[i] = terrain;
     world.walkable[i] = walkable ? 1 : 0;
   }
@@ -56,60 +61,7 @@ RTS.World = (function () {
     }
   }
 
-  function generateTerrain(world) {
-    const W = world.W;
-    const H = world.H;
-    const G = T();
-
-    // 边界岩石
-    for (let x = 0; x < W; x++) {
-      setTile(world, x, 0, G.rock, false);
-      setTile(world, x, H - 1, G.rock, false);
-    }
-    for (let y = 0; y < H; y++) {
-      setTile(world, 0, y, G.rock, false);
-      setTile(world, W - 1, y, G.rock, false);
-    }
-
-    // 中央纵向河流（4 格宽），三座桥梁把地图切成上/中/下三条进攻通道
-    const riverX = [30, 31, 32, 33];
-    const bridges = [[10, 12], [29, 35], [48, 50]]; // [y0, y1] 桥面
-    for (let y = 1; y < H - 1; y++) {
-      const inBridge = bridges.some((b) => y >= b[0] && y <= b[1]);
-      for (const x of riverX) {
-        setTile(world, x, y, inBridge ? G.road : G.water, inBridge);
-      }
-    }
-
-    // 中央大道：从两侧基地直通中央桥梁（主攻通道）
-    for (let y = 31; y <= 32; y++) {
-      for (let x = 10; x <= 29; x++) {
-        setTile(world, x, y, G.road, true);
-        setTile(world, W - 1 - x, y, G.road, true);
-      }
-    }
-
-    // 湖泊（左右对称，靠近出生区外缘）
-    addBlob(world, 12, 12, 2, G.water, false);
-    addBlob(world, 12, 52, 2, G.water, false);
-
-    // 山脉/岩石：构成隘口与侧翼阻挡（不可通行）
-    addBlob(world, 16, 6, 2, G.rock, false);
-    addBlob(world, 16, 58, 2, G.rock, false);
-    addBlob(world, 24, 22, 2, G.rock, false);
-    addBlob(world, 24, 44, 2, G.rock, false);
-    addBlob(world, 28, 8, 1, G.rock, false);
-    addBlob(world, 28, 56, 1, G.rock, false);
-
-    // 森林（可通行，提供掩体）：散布在通道两侧与桥头，供防守/伏击
-    addBlob(world, 14, 24, 3, G.forest, true);
-    addBlob(world, 14, 40, 3, G.forest, true);
-    addBlob(world, 20, 14, 2, G.forest, true);
-    addBlob(world, 20, 50, 2, G.forest, true);
-    addBlob(world, 26, 32, 2, G.forest, true);
-    addBlob(world, 22, 28, 1, G.forest, true);
-    addBlob(world, 22, 36, 1, G.forest, true);
-  }
+  // ---------------------------------------------------------------- 基地 / 资源（由地图定义驱动）
 
   /** 将基地占位区域标记为不可通行（单位绕行，需贴近后攻击） */
   function markBaseBlocked(base) {
@@ -134,72 +86,56 @@ RTS.World = (function () {
     }
   }
 
-  /** 创建双方基地（对称分布：玩家左侧、AI 右侧） */
-  function placeBases() {
+  /** 依据地图定义创建双方基地（对称分布：玩家左侧、AI 右侧） */
+  function placeBases(map) {
     const Cfg = C();
-    const midY = Cfg.worldHeight / 2;
-    const player = {
-      x: 9 * Cfg.tileSize,
-      y: midY,
-      hp: Cfg.baseMaxHp,
-      maxHp: Cfg.baseMaxHp,
-      radius: Cfg.baseRadius,
-      owner: 'player',
-      defenseCooldown: 0,
-      firingFlash: 0,
-    };
-    const enemy = {
-      x: (Cfg.mapWidthTiles - 9) * Cfg.tileSize,
-      y: midY,
-      hp: Cfg.baseMaxHp,
-      maxHp: Cfg.baseMaxHp,
-      radius: Cfg.baseRadius,
-      owner: 'enemy',
-      defenseCooldown: 0,
-      firingFlash: 0,
-    };
+    const ts = Cfg.tileSize;
+
+    function mkBase(tx, ty, owner) {
+      const dirX = owner === 'player' ? 1 : -1; // 集结点朝敌方一侧
+      const x = (tx + 0.5) * ts;
+      const y = (ty + 0.5) * ts;
+      return {
+        x,
+        y,
+        hp: Cfg.baseMaxHp,
+        maxHp: Cfg.baseMaxHp,
+        radius: Cfg.baseRadius,
+        owner,
+        defenseCooldown: 0,
+        firingFlash: 0,
+        towerFlash: [0, 0, 0, 0], // 四角塔各自发射闪光计时
+        rallyX: x + dirX * Cfg.baseSpawnRallyDist, // 单位出生集结点
+        rallyY: y,
+      };
+    }
+
+    const player = mkBase(map.playerBase.tx, map.playerBase.ty, 'player');
+    const enemy = mkBase(map.enemyBase.tx, map.enemyBase.ty, 'enemy');
     markBaseBlocked(player);
     markBaseBlocked(enemy);
     return { player, enemy };
   }
 
-  /** 在可行走格上生成资源点（对称分布） */
-  function placeResources() {
+  /** 依据地图定义生成资源点（持久控制点） */
+  function placeResources(map) {
     const Cfg = C();
-    const W = Cfg.mapWidthTiles;
-    const H = Cfg.mapHeightTiles;
     const nodes = [];
     let id = 1;
 
-    function placeAt(tx, ty, type) {
-      const t = findWalkableTileNear(tx, ty);
+    for (const r of (map.resources || [])) {
+      const t = findWalkableTileNear(r.tx, r.ty);
       const p = tileToCenter(t.tx, t.ty);
       nodes.push({
         id: id++,
-        type,
+        type: r.type,
         x: p.x,
         y: p.y,
-        radius: Cfg.resourceNodes[type].radius,
+        radius: Cfg.resourceNodes[r.type].radius,
         owner: 'neutral',
-        control: 0, // -1..1：+ 为玩家、- 为敌方、0 中立；易主后保持，不会因离开而回退
+        control: 0, // -1..1：+ 为玩家、- 为敌方、0 中立；易主后保持
       });
     }
-
-    // 安全区金矿（各自基地附近，稳定经济）
-    placeAt(14, 18, 'gold');
-    placeAt(14, 46, 'gold');
-    placeAt(W - 15, 18, 'gold');
-    placeAt(W - 15, 46, 'gold');
-    // 中央争夺区：木/石（鼓励地图控制，而非一波流）
-    placeAt(22, 12, 'wood');
-    placeAt(W - 23, 12, 'wood');
-    placeAt(22, 52, 'wood');
-    placeAt(W - 23, 52, 'wood');
-    placeAt(22, 32, 'stone');
-    placeAt(W - 23, 32, 'stone');
-    placeAt(27, 24, 'stone');
-    placeAt(W - 28, 24, 'stone');
-
     return nodes;
   }
 
@@ -216,6 +152,8 @@ RTS.World = (function () {
     }
     return { tx, ty };
   }
+
+  // ---------------------------------------------------------------- 通用查询
 
   function worldToTile(x, y) {
     return {
@@ -288,9 +226,17 @@ RTS.World = (function () {
     return { x, y };
   }
 
-  /** 是否在基地障碍区内（用于攻击基地时判定到达） */
   function distToBase(base, x, y) {
     return Math.hypot(x - base.x, y - base.y);
+  }
+
+  /** 计算某基地四座角塔的世界坐标（供箭塔射箭与渲染共用） */
+  function baseTowerPositions(base) {
+    const Cfg = C();
+    return Cfg.baseTowerOffsets.map((o) => ({
+      x: base.x + o.dx * base.radius,
+      y: base.y + o.dy * base.radius,
+    }));
   }
 
   return {
@@ -298,6 +244,10 @@ RTS.World = (function () {
     placeBases,
     placeResources,
     markBaseBlocked,
+    baseTowerPositions,
+    setTile,
+    setSym,
+    addBlob,
     worldToTile,
     tileToCenter,
     isWalkable,

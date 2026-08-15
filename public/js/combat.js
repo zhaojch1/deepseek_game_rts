@@ -103,7 +103,7 @@ RTS.Combat = (function () {
   /** 结算一次单位受到的伤害（克制 + 掩体 + 护甲），返回实际伤害值 */
   function applyUnitDamage(attackerType, attackValue, t, isRanged) {
     if (!t || t.hp <= 0) return 0;
-    const mul = RTS.counterMul(attackerType, t.type);
+    const mul = RTS.Units.counterMul(attackerType, t.type);
     let dmg = Math.floor(attackValue * mul);
     // 远程攻击者在森林掩体内的单位身上有减伤
     if (isRanged && RTS.World.isCoverPx(t.x, t.y)) {

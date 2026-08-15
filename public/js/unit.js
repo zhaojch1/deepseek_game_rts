@@ -8,7 +8,7 @@ RTS.Unit = (function () {
   let nextId = 1;
 
   function typeStats(type) {
-    return RTS.CONFIG.unitTypes[type];
+    return RTS.Units.get(type);
   }
 
   function create(owner, type, x, y) {
@@ -23,7 +23,7 @@ RTS.Unit = (function () {
       hp: s.hp,
       maxHp: s.hp,
       speed: s.speed * RTS.CONFIG.speedScale,
-      range: RTS.rangePx(type),
+      range: RTS.Units.rangePx(type),
       attack: s.attack,
       attackInterval: s.attackInterval,
       ranged: !!s.ranged,
@@ -38,6 +38,8 @@ RTS.Unit = (function () {
       attackCooldown: 0,
       attackWindup: 0,
       repathTimer: 0,
+      pathGoalX: null, // 当前 path 计算时对应的目标（用于检测目标变化强制重算）
+      pathGoalY: null,
       stuckTimer: 0,
       stuckRefX: 0,
       stuckRefY: 0,
@@ -49,6 +51,7 @@ RTS.Unit = (function () {
       deathTimer: -1,
       animPhase: Math.random() * Math.PI * 2, // 行走动画相位
       attackAnim: 0, // 攻击挥击/拉弓后摇计时
+      aimAngle: 0, // 远程单位瞄准目标的上仰/下俯角（弧度）
     };
   }
 
@@ -97,15 +100,23 @@ RTS.Unit = (function () {
     return false;
   }
 
-  /** 沿 A* 路径移动（朝最远的可见路点直行，实现平滑转向），返回是否到达终点 */
-  function moveAlongPath(unit, dt) {
-    if (!unit.orderTarget) return true;
+  /** 沿 A* 路径移动到 (tx,ty)（朝最远的可见路点直行，实现平滑转向），返回是否到达终点 */
+  function followPath(unit, tx, ty, dt) {
+    // 目标显著变化（例如从追击目标切回移动目标）→ 立即重算
+    if (
+      unit.pathGoalX == null ||
+      Math.hypot(unit.pathGoalX - tx, unit.pathGoalY - ty) > RTS.CONFIG.repathTargetDelta
+    ) {
+      unit.repathTimer = 0;
+    }
 
-    // 需要重算路径（无路径或卡住超时）
+    // 需要重算路径（无路径 / 卡住超时 / 目标变化）
     if (unit.path.length === 0 || unit.repathTimer <= 0) {
-      unit.path = RTS.Pathfinding.findPath(unit.x, unit.y, unit.orderTarget.x, unit.orderTarget.y) || [];
+      unit.path = RTS.Pathfinding.findPath(unit.x, unit.y, tx, ty) || [];
       unit.pathIndex = 0;
       unit.repathTimer = RTS.CONFIG.repathInterval;
+      unit.pathGoalX = tx;
+      unit.pathGoalY = ty;
       if (unit.path.length === 0) return false;
     }
 
@@ -156,6 +167,24 @@ RTS.Unit = (function () {
     return false;
   }
 
+  /** 沿 A* 路径移动（move/attackMove 使用），返回是否到达终点 */
+  function moveAlongPath(unit, dt) {
+    if (!unit.orderTarget) return true;
+    return followPath(unit, unit.orderTarget.x, unit.orderTarget.y, dt);
+  }
+
+  /**
+   * 朝 (tx,ty) 推进：目标直线可达则直接逼近，否则 A* 绕行。
+   * 用于追击/攻击跨越河流、山脉等障碍的目标（避免卡在障碍边缘）。
+   */
+  function seekToward(unit, tx, ty, dt) {
+    if (RTS.Pathfinding.hasLineOfSight(unit.x, unit.y, tx, ty)) {
+      return steerToward(unit, tx, ty, dt);
+    }
+    followPath(unit, tx, ty, dt);
+    return false;
+  }
+
   /** 攻击：在射程内则进入前摇/攻击循环 */
   function engage(unit, target, dt) {
     const d = distTo(unit, target.ref.x, target.ref.y);
@@ -163,13 +192,19 @@ RTS.Unit = (function () {
     if (d <= reach) {
       // 面向目标
       unit.facingX = target.ref.x >= unit.x ? 1 : -1;
+      // 远程单位：记录朝目标的上仰/下俯角，用于渲染瞄准
+      if (unit.ranged) {
+        const dx = Math.abs(target.ref.x - unit.x) || 1;
+        const dy = target.ref.y - unit.y;
+        unit.aimAngle = Math.max(-0.9, Math.min(0.9, Math.atan2(dy, dx)));
+      }
       if (unit.attackCooldown <= 0 && unit.attackWindup <= 0) {
         unit.attackWindup = RTS.CONFIG.attackWindup;
         unit.attackCooldown = unit.attackInterval;
       }
     } else {
-      // 追击
-      steerToward(unit, target.ref.x, target.ref.y, dt);
+      // 追击：有视线则直追，跨障碍则 A* 绕行
+      seekToward(unit, target.ref.x, target.ref.y, dt);
     }
   }
 
@@ -271,7 +306,11 @@ RTS.Unit = (function () {
         const acq = RTS.Combat.acquire(unit, holdR);
         if (acq) {
           unit.attackTarget = acq;
-          unit.state = 'attack'; // 追击并攻击
+          unit.state = 'attack'; // 追击并攻击（跨障碍时 seekToward 会 A* 绕行）
+          unit.path = [];
+          unit.pathIndex = 0;
+          unit.pathGoalX = null;
+          unit.pathGoalY = null;
         } else if (Math.hypot(unit.x - unit.holdX, unit.y - unit.holdY) > 20) {
           // 远离驻守点：归位（仅当未被攻击）
           unit.orderTarget = { x: unit.holdX, y: unit.holdY };
@@ -293,6 +332,8 @@ RTS.Unit = (function () {
     unit.path = RTS.Pathfinding.findPath(unit.x, unit.y, unit.orderTarget.x, unit.orderTarget.y) || [];
     unit.pathIndex = 0;
     unit.repathTimer = RTS.CONFIG.repathInterval;
+    unit.pathGoalX = unit.orderTarget.x;
+    unit.pathGoalY = unit.orderTarget.y;
     unit.stuckTimer = 0;
     unit.stuckRefX = unit.x;
     unit.stuckRefY = unit.y;
@@ -308,6 +349,8 @@ RTS.Unit = (function () {
     unit.path = RTS.Pathfinding.findPath(unit.x, unit.y, unit.orderTarget.x, unit.orderTarget.y) || [];
     unit.pathIndex = 0;
     unit.repathTimer = RTS.CONFIG.repathInterval;
+    unit.pathGoalX = unit.orderTarget.x;
+    unit.pathGoalY = unit.orderTarget.y;
     unit.stuckTimer = 0;
     unit.stuckRefX = unit.x;
     unit.stuckRefY = unit.y;
@@ -320,6 +363,11 @@ RTS.Unit = (function () {
     unit.attackTarget = target;
     unit.state = 'attack';
     unit.orderTarget = null;
+    // 清空旧移动路径，让追击按目标重新 A* 绕行
+    unit.path = [];
+    unit.pathIndex = 0;
+    unit.pathGoalX = null;
+    unit.pathGoalY = null;
   }
 
   function damage(unit, amount) {

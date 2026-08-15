@@ -8,8 +8,9 @@ RTS.Match = (function () {
   const C = () => RTS.CONFIG;
 
   function createState() {
-    RTS.world = RTS.World.create();
-    const bases = RTS.World.placeBases();
+    const map = RTS.Maps.current();
+    RTS.world = RTS.World.create(map);
+    const bases = RTS.World.placeBases(map);
     const Cfg = C();
 
     const mkFaction = (owner, base) => ({
@@ -35,8 +36,9 @@ RTS.Match = (function () {
       player: mkFaction('player', bases.player),
       enemy: mkFaction('enemy', bases.enemy),
       selection: new Set(),
+      selectedBase: null, // 'player' 表示已选中己方城堡（用于设置集结点）
       damageNumbers: [],
-      resources: { nodes: RTS.World.placeResources() },
+      resources: { nodes: RTS.World.placeResources(map) },
       corpses: [],
       ai: RTS.AI.init(),
     };
@@ -100,7 +102,13 @@ RTS.Match = (function () {
     RTS.UI.toast('派部队占领金/木/石资源点，占领后持续产出', 'info');
   }
 
-  return { start, restart, checkEnd, createState, updateAllUnits };
+  /** 返回主菜单：清除对局状态（主循环见 state 为空则只渲染菜单） */
+  function toMenu() {
+    RTS.state = null;
+    RTS.Projectiles.clear();
+  }
+
+  return { start, restart, toMenu, checkEnd, createState, updateAllUnits };
 })();
 
 // ---------------------------------------------------------------- 启动
@@ -109,10 +117,11 @@ RTS.Match = (function () {
   const canvas = document.getElementById('game-canvas');
   const minimap = document.getElementById('minimap');
 
-  RTS.UI.init();
-  RTS.Match.start();
+  RTS.Maps.activate(RTS.CONFIG.defaultMap);
+  RTS.UI.init(); // 构建主菜单（地图选择）+ 各面板
   RTS.Render.init(canvas, minimap);
   RTS.Input.init(canvas);
+  // 不自动开战：等待玩家在主菜单选择地图后点击「开始游戏」
 
   window.addEventListener('resize', () => {
     RTS.Render.resize();
@@ -131,39 +140,45 @@ RTS.Match = (function () {
     const rawDt = Math.min(0.1, (now - last) / 1000);
     last = now;
 
-    // FPS 统计
-    fpsFrames++;
-    fpsTime += rawDt;
-    if (fpsTime >= 0.5) {
-      RTS.state.fps = Math.round(fpsFrames / fpsTime);
-      fpsFrames = 0;
-      fpsTime = 0;
-    }
-
-    acc += rawDt;
-    while (acc >= STEP) {
-      if (RTS.state.phase === 'running') {
-        RTS.state.time += STEP;
-        RTS.Production.update(STEP);
-        RTS.AI.update(STEP);
-        RTS.Combat.rebuildHash();
-        RTS.Resources.captureUpdate(STEP);
-        RTS.Resources.incomeUpdate(STEP);
-        RTS.Resources.baseDefenseUpdate(STEP);
-        RTS.Match.updateAllUnits(STEP);
-        RTS.Projectiles.update(STEP);
-        RTS.Combat.applySeparation();
-        RTS.Combat.ageDamageNumbers(STEP);
-        RTS.Combat.ageCorpses(STEP);
-        RTS.Match.checkEnd();
+    if (RTS.state) {
+      // FPS 统计
+      fpsFrames++;
+      fpsTime += rawDt;
+      if (fpsTime >= 0.5) {
+        RTS.state.fps = Math.round(fpsFrames / fpsTime);
+        fpsFrames = 0;
+        fpsTime = 0;
       }
-      acc -= STEP;
-    }
 
-    RTS.Input.update(rawDt);
-    RTS.UI.update(rawDt);
-    RTS.Render.draw();
-    RTS.Render.drawMinimap();
+      acc += rawDt;
+      while (acc >= STEP) {
+        if (RTS.state.phase === 'running') {
+          RTS.state.time += STEP;
+          RTS.Production.update(STEP);
+          RTS.AI.update(STEP);
+          RTS.Combat.rebuildHash();
+          RTS.Resources.captureUpdate(STEP);
+          RTS.Resources.incomeUpdate(STEP);
+          RTS.Resources.baseDefenseUpdate(STEP);
+          RTS.Match.updateAllUnits(STEP);
+          RTS.Projectiles.update(STEP);
+          RTS.Combat.applySeparation();
+          RTS.Combat.ageDamageNumbers(STEP);
+          RTS.Combat.ageCorpses(STEP);
+          RTS.Match.checkEnd();
+        }
+        acc -= STEP;
+      }
+
+      RTS.Input.update(rawDt);
+      RTS.UI.update(rawDt);
+      RTS.Render.draw();
+      RTS.Render.drawMinimap();
+    } else {
+      // 主菜单阶段：清空画布（菜单为 DOM 覆盖层）
+      const g = canvas.getContext('2d');
+      g.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    }
 
     requestAnimationFrame(frame);
   }

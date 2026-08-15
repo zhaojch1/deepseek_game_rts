@@ -13,6 +13,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { URL } = require('url');
 
 // ---------------------------------------------------------------- 配置读取
@@ -51,6 +52,62 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const DEEPSEEK_ENDPOINT = process.env.DEEPSEEK_ENDPOINT || 'https://api.deepseek.com/chat/completions';
 const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 8000;
+
+// ---------------------------------------------------------------- 单位/地图定义（供 AI 决策用）
+
+/**
+ * 读取 public/js/units/*.js 与 public/js/maps/*.js 的定义（单一数据源），
+ * 在 Node 沙箱中求值注册调用，得到纯元信息（剥离 draw/generate 函数）。
+ * 这样新增单位/地图后，AI 提示与校验字段会自动跟随，无需改动本文件。
+ */
+function loadDefinitions() {
+  const units = new Map();
+  const maps = new Map();
+  const sandbox = {
+    RTS: {
+      Units: { register: (def) => { if (def && def.id) units.set(def.id, def); } },
+      Maps: { register: (def) => { if (def && def.id) maps.set(def.id, def); } },
+    },
+  };
+  sandbox.globalThis = sandbox;
+  const ctx = vm.createContext(sandbox);
+
+  function loadDir(dir) {
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).sort(); } catch (_) { /* 目录不存在 */ }
+    for (const f of files) {
+      try {
+        vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8'), ctx, { filename: f });
+      } catch (e) {
+        console.warn(`[RTS] 加载定义失败 ${f}: ${e.message}`);
+      }
+    }
+  }
+  loadDir(path.join(PUBLIC_DIR, 'js', 'units'));
+  loadDir(path.join(PUBLIC_DIR, 'js', 'maps'));
+  return { units, maps };
+}
+
+const DEFS = loadDefinitions();
+const VALID_ARMY_FOCUS = Array.from(DEFS.units.keys());
+
+function unitIntro(u) {
+  const bonus = Object.entries(u.bonusVs || {}).map(([k, v]) => `${k}×${v}`).join('、') || '无克制';
+  const tags = (u.tags || []).join('/');
+  return `${u.id}(${u.name})：生命${u.hp} 攻击${u.attack} 射程${u.range}格 攻速${u.attackInterval}s ` +
+    `移速${u.speed}格/s 成本${u.cost} 训练${u.trainTime}s 标签[${tags}] 克制[${bonus}]。${u.doc || ''}`;
+}
+
+function mapIntro(m) {
+  const lanes = (m.lanes || []).map((l) => l.label || l.id).join('/');
+  const res = (m.resources || []).reduce((acc, r) => { acc[r.type] = (acc[r.type] || 0) + 1; return acc; }, {});
+  const resStr = Object.entries(res).map(([k, v]) => `${k}×${v}`).join('、');
+  return `${m.id}(${m.name})：尺寸${m.width}×${m.height} ${m.size}图，基地 玩家(${m.playerBase.tx},${m.playerBase.ty}) ` +
+    `敌方(${m.enemyBase.tx},${m.enemyBase.ty})，通道[${lanes}]，资源[${resStr}]。${m.doc || ''}`;
+}
+
+const UNITS_INTRO = Array.from(DEFS.units.values()).map(unitIntro).join('\n');
+const MAPS_INTRO = Array.from(DEFS.maps.values()).map(mapIntro).join('\n');
 
 // ---------------------------------------------------------------- 静态文件
 
@@ -185,20 +242,35 @@ function extractJson(content) {
   return null;
 }
 
+// 与前端 ai.js STANCE_LIST 保持一致的态势白名单
+const STANCE_LIST = [
+  'build', 'boom', 'tech', 'eco_defend',
+  'scout', 'scout_hold', 'counter_scout',
+  'capture_gold', 'capture_wood', 'capture_stone', 'capture_expand', 'node_garrison',
+  'rally', 'rally_hold', 'reinforce',
+  'harass', 'harass_flank', 'harass_econ',
+  'assault_mid', 'assault_top', 'assault_bottom', 'all_in', 'pincer', 'feint', 'siege',
+  'defend', 'defend_choke', 'defend_node', 'counter_attack', 'fallback',
+  'retreat', 'regroup', 'turtle', 'ambush',
+];
+
 function clampDecision(decision) {
   if (!decision || typeof decision !== 'object') return null;
-  const armyFocus = ['spear', 'sword', 'archer', 'cavalry'].includes(decision.armyFocus)
+  const armyFocus = VALID_ARMY_FOCUS.includes(decision.armyFocus)
     ? decision.armyFocus
     : null;
   let aggression = Number(decision.aggression);
   if (!Number.isFinite(aggression)) aggression = 50;
   aggression = Math.max(0, Math.min(100, Math.round(aggression)));
   const attackNow = decision.attackNow === true;
+  const stance = STANCE_LIST.includes(decision.stance) ? decision.stance : null;
+  const lane = ['top', 'mid', 'bottom'].includes(decision.lane) ? decision.lane : null;
+  const targetFocus = ['base', 'army', 'econ'].includes(decision.targetFocus) ? decision.targetFocus : null;
   let comment = typeof decision.comment === 'string' ? decision.comment.slice(0, 60) : '';
-  if (!armyFocus && !attackNow && typeof decision.attackNow === 'undefined' && aggression === 50) {
+  if (!armyFocus && !stance && !lane && !targetFocus && !attackNow && aggression === 50) {
     return null; // 完全非法
   }
-  return { armyFocus, aggression, attackNow, comment };
+  return { armyFocus, aggression, attackNow, stance, lane, targetFocus, comment };
 }
 
 function callDeepSeek(payload) {
@@ -210,13 +282,29 @@ function callDeepSeek(payload) {
         {
           role: 'system',
           content:
-            '你是 RTS 游戏的敌方指挥官。你只能回复一个合法 JSON，不要输出任何其他文字。' +
-            'JSON 字段：armyFocus(兵种倾向，值为 spear/sword/archer/cavalry 之一)、' +
-            'aggression(0-100 进攻倾向)、attackNow(布尔)、comment(不超过30字说明)。',
+            '你是 RTS 游戏的敌方指挥官。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
+            '【可用兵种】(armyFocus 只能取下列单位 id 之一)：\n' + UNITS_INTRO + '\n\n' +
+            '【可选地图】：\n' + MAPS_INTRO + '\n\n' +
+            '【JSON 字段】(除 comment 外都可省略)：' +
+            'armyFocus(兵种倾向，取上面兵种 id 之一)、' +
+            'aggression(0-100 进攻倾向)、' +
+            'attackNow(布尔，是否立即总攻)、' +
+            'stance(指定态势，可选 build/boom/tech/eco_defend/scout/scout_hold/counter_scout/' +
+            'capture_gold/capture_wood/capture_stone/capture_expand/node_garrison/' +
+            'rally/rally_hold/reinforce/harass/harass_flank/harass_econ/' +
+            'assault_mid/assault_top/assault_bottom/all_in/pincer/feint/siege/' +
+            'defend/defend_choke/defend_node/counter_attack/fallback/retreat/regroup/turtle/ambush 之一)、' +
+            'lane(主攻方向，top/mid/bottom 之一)、' +
+            'targetFocus(目标侧重，base/army/econ 之一)、' +
+            'comment(不超过30字说明)。',
         },
         {
           role: 'user',
-          content: JSON.stringify(payload),
+          content:
+            '当前地图：' + (payload && payload.map && DEFS.maps.has(payload.map)
+              ? (DEFS.maps.get(payload.map).doc || payload.map)
+              : '未知') +
+            '\n战场状态：' + JSON.stringify(payload),
         },
       ],
       stream: false,

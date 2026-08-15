@@ -48,36 +48,9 @@
     <div class="selection-hint">右键移动 · A+左键攻击移动 · 右键敌方攻击 · Esc 取消</div>
   </div>
 
-  <!-- 底部生产面板 -->
+  <!-- 底部生产面板（按钮由 ui.js 根据单位注册表动态生成） -->
   <div id="production-panel" class="production-panel">
-    <button class="prod-btn" data-type="spear" title="长矛兵 · 反骑兵">
-      <span class="prod-key">Q</span>
-      <span class="prod-icon">🔱</span>
-      <span class="prod-name">长矛兵</span>
-      <span class="prod-cost">🪙60</span>
-      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
-    </button>
-    <button class="prod-btn" data-type="sword" title="刀盾兵 · 肉盾">
-      <span class="prod-key">W</span>
-      <span class="prod-icon">🛡️</span>
-      <span class="prod-name">刀盾兵</span>
-      <span class="prod-cost">🪙70</span>
-      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
-    </button>
-    <button class="prod-btn" data-type="archer" title="弓箭手 · 远程">
-      <span class="prod-key">E</span>
-      <span class="prod-icon">🏹</span>
-      <span class="prod-name">弓箭手</span>
-      <span class="prod-cost">🪙80</span>
-      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
-    </button>
-    <button class="prod-btn" data-type="cavalry" title="骑兵 · 突击">
-      <span class="prod-key">R</span>
-      <span class="prod-icon">🐴</span>
-      <span class="prod-name">骑兵</span>
-      <span class="prod-cost">🪙120</span>
-      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
-    </button>
+    <div id="production-buttons" class="production-buttons"></div>
     <div id="queue-display" class="queue-display"></div>
   </div>
 
@@ -115,19 +88,47 @@
   <!-- 提示 toast -->
   <div id="toasts" class="toasts"></div>
 
+  <!-- 主菜单（选择地图） -->
+  <div id="menu" class="menu">
+    <div class="menu-box">
+      <h1 class="menu-title">DeepSeek Game RTS</h1>
+      <div class="menu-sub">选择地图，开始对局</div>
+      <div id="map-list" class="map-list"></div>
+      <button id="menu-start" class="menu-btn">开始游戏</button>
+    </div>
+  </div>
+
   <!-- 结束覆盖层 -->
   <div id="overlay" class="overlay hidden">
     <div class="overlay-box">
       <div id="overlay-title" class="overlay-title">胜利</div>
       <div id="overlay-sub" class="overlay-sub"></div>
-      <button id="overlay-restart" class="overlay-btn">再来一局</button>
+      <div class="overlay-btns">
+        <button id="overlay-restart" class="overlay-btn">再来一局</button>
+        <button id="overlay-menu" class="overlay-btn secondary">主菜单</button>
+      </div>
     </div>
   </div>
 
   <div id="debug-panel" class="debug-panel hidden"></div>
 
-  <!-- 模块加载顺序：config → world → pathfinding → camera → unit → combat → production → resources → projectiles → ai → input → render → ui → main -->
+  <!--
+    模块加载顺序：
+    config → registry → units/* → maps/* → world → pathfinding → camera → unit
+    → combat → production → resources → projectiles → ai → input → render → ui → main
+
+    ★ 新增单位：在 js/units/ 下加一个定义文件，并在此加一行 <script>（顺序在 maps/* 之后、world 之前任意）。
+    ★ 新增地图：在 js/maps/ 下加一个定义文件，并在此加一行 <script>。
+  -->
   <script src="js/config.js"></script>
+  <script src="js/registry.js"></script>
+  <script src="js/units/spear.js"></script>
+  <script src="js/units/sword.js"></script>
+  <script src="js/units/archer.js"></script>
+  <script src="js/units/crossbow.js"></script>
+  <script src="js/units/cavalry.js"></script>
+  <script src="js/maps/valley_river.js"></script>
+  <script src="js/maps/wide_river.js"></script>
   <script src="js/world.js"></script>
   <script src="js/pathfinding.js"></script>
   <script src="js/camera.js"></script>

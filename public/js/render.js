@@ -12,6 +12,7 @@ RTS.Render = (function () {
   let minimap;
   let minimapCtx;
   let terrainMinimap;
+  let terrainMapId = null;
 
   const C = () => RTS.CONFIG;
 
@@ -39,7 +40,8 @@ RTS.Render = (function () {
     minimap = minimapCanvas;
     minimapCtx = minimapCanvas.getContext('2d');
     resize();
-    buildTerrainMinimap();
+    // 注意：不在此处构建地形小地图——主菜单阶段 RTS.world 尚未创建，
+    // 改由 drawMinimap() 在首次渲染时惰性构建（见下）。
   }
 
   function resize() {
@@ -104,9 +106,9 @@ RTS.Render = (function () {
     ctx.fillRect(vp.left, vp.top, vp.right - vp.left, vp.bottom - vp.top);
 
     const x0 = Math.max(0, Math.floor(vp.left / ts));
-    const x1 = Math.min(Cfg.mapWidthTiles - 1, Math.ceil(vp.right / ts));
+    const x1 = Math.min(RTS.world.W - 1, Math.ceil(vp.right / ts));
     const y0 = Math.max(0, Math.floor(vp.top / ts));
-    const y1 = Math.min(Cfg.mapHeightTiles - 1, Math.ceil(vp.bottom / ts));
+    const y1 = Math.min(RTS.world.H - 1, Math.ceil(vp.bottom / ts));
 
     for (let ty = y0; ty <= y1; ty++) {
       for (let tx = x0; tx <= x1; tx++) {
@@ -234,28 +236,46 @@ RTS.Render = (function () {
       ctx.stroke();
     }
 
-    // 四座角塔（箭塔位）
-    const lvl = RTS.Resources.levelOf(RTS.state[owner], 'defense');
-    const flash = base.firingFlash > 0 ? Math.min(1, base.firingFlash / 0.35) : 0;
-    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const tx = dx * r * 0.85;
-      const ty = dy * r * 0.65;
+    // 四座角塔（箭塔位，从世界辅助函数取坐标，保证与射箭位置一致）
+    const towers = RTS.World.baseTowerPositions(base);
+    const towerR = r * RTS.CONFIG.baseTowerRadius;
+    towers.forEach((tw, i) => {
+      const tx = tw.x - base.x;
+      const ty = tw.y - base.y;
+      // 塔身
       ctx.fillStyle = '#4a4f5a';
       ctx.strokeStyle = '#0c1220';
       ctx.lineWidth = 2 / RTS.Camera.get().zoom;
       ctx.beginPath();
-      ctx.arc(tx, ty, r * 0.34, 0, Math.PI * 2);
+      ctx.arc(tx, ty, towerR, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      // 塔顶
-      ctx.fillStyle = flash > 0 ? '#ffd24e' : '#6b7280';
+      // 城垛
+      ctx.fillStyle = '#5a6070';
+      for (let k = -1; k <= 1; k++) {
+        ctx.fillRect(tx - towerR * 0.9 + k * towerR * 0.9, ty - towerR, towerR * 0.5, towerR * 0.4);
+      }
+      // 塔顶闪光（发射塔箭时）
+      const flash = (base.towerFlash && base.towerFlash[i] > 0)
+        ? Math.min(1, base.towerFlash[i] / RTS.CONFIG.baseTowerFlash)
+        : 0;
+      ctx.fillStyle = flash > 0 ? `rgba(255,210,78,${0.4 + flash * 0.6})` : '#6b7280';
       ctx.beginPath();
-      ctx.moveTo(tx, ty - r * 0.34);
-      ctx.lineTo(tx, ty - r * 0.5);
-      ctx.lineTo(tx + r * 0.16, ty - r * 0.34);
+      ctx.moveTo(tx, ty - towerR);
+      ctx.lineTo(tx, ty - towerR * 1.5);
+      ctx.lineTo(tx + towerR * 0.5, ty - towerR);
       ctx.closePath();
       ctx.fill();
-    }
+      // 闪光光晕
+      if (flash > 0) {
+        ctx.globalAlpha = flash * 0.5;
+        ctx.fillStyle = '#ffe9a3';
+        ctx.beginPath();
+        ctx.arc(tx, ty - towerR * 1.1, towerR * 0.9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    });
 
     // 城门
     ctx.fillStyle = '#1b1e24';
@@ -279,6 +299,46 @@ RTS.Render = (function () {
     ctx.fill();
     ctx.restore();
 
+    // 己方城堡被选中：高亮描边
+    if (RTS.state.selectedBase === base.owner) {
+      ctx.strokeStyle = '#6ee7a0';
+      ctx.lineWidth = 3 / RTS.Camera.get().zoom;
+      ctx.beginPath();
+      ctx.arc(base.x, base.y, base.radius + 14, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 单位出生集结点标记（旗帜 + 虚线落点）
+    if (base.rallyX != null && base.rallyY != null) {
+      const selected = RTS.state.selectedBase === base.owner;
+      const z = RTS.Camera.get().zoom;
+      const rx = base.rallyX;
+      const ry = base.rallyY;
+      ctx.globalAlpha = selected ? 1 : 0.55;
+      ctx.strokeStyle = selected ? '#6ee7a0' : '#9fb0c8';
+      ctx.lineWidth = 1.5 / z;
+      ctx.setLineDash([6 / z, 5 / z]);
+      ctx.beginPath();
+      ctx.arc(rx, ry, 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 旗杆 + 旗面
+      ctx.strokeStyle = '#e8eef7';
+      ctx.lineWidth = 2 / z;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx, ry - 22);
+      ctx.stroke();
+      ctx.fillStyle = selected ? '#6ee7a0' : color;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry - 22);
+      ctx.lineTo(rx + 13, ry - 17);
+      ctx.lineTo(rx, ry - 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     // 基地血条
     drawBar(base.x, base.y - r - 44, r * 2, base.hp / base.maxHp, '#6ee7a0');
   }
@@ -291,56 +351,11 @@ RTS.Render = (function () {
   }
 
   // ---------------------------------------------------------------- 单位绘制
-
-  function drawHumanBody(u, r) {
-    const owner = u.owner;
-    const p = u.animPhase;
-    const moving = u.state === 'move' || u.state === 'attackMove' || u.state === 'attack';
-    const bob = moving ? Math.sin(p) * r * 0.12 : 0;
-
-    // 腿
-    ctx.strokeStyle = PAL.dark;
-    ctx.lineWidth = r * 0.24;
-    ctx.lineCap = 'round';
-    const legSwing = moving ? Math.sin(p) * r * 0.3 : 0;
-    ctx.beginPath();
-    ctx.moveTo(0, r * 0.2);
-    ctx.lineTo(-r * 0.2, r * 0.75 + legSwing);
-    ctx.moveTo(0, r * 0.2);
-    ctx.lineTo(r * 0.25, r * 0.75 - legSwing);
-    ctx.stroke();
-
-    // 躯干
-    ctx.fillStyle = tunic(owner);
-    ctx.beginPath();
-    ctx.ellipse(r * 0.05, -r * 0.15 + bob, r * 0.55, r * 0.6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = tunicDark(owner);
-    ctx.beginPath();
-    ctx.ellipse(r * 0.05, -r * 0.15 + bob, r * 0.55, r * 0.28, 0, 0, Math.PI);
-    ctx.fill();
-
-    // 头 + 头盔
-    const hx = r * 0.28;
-    const hy = -r * 0.95 + bob;
-    ctx.fillStyle = PAL.skin;
-    ctx.beginPath();
-    ctx.arc(hx, hy, r * 0.38, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = PAL.metal;
-    ctx.beginPath();
-    ctx.arc(hx, hy - r * 0.06, r * 0.42, Math.PI, 0);
-    ctx.fill();
-    ctx.fillStyle = '#5a6470';
-    ctx.fillRect(hx + r * 0.28, hy - r * 0.18, r * 0.12, r * 0.3);
-
-    return { hx, hy };
-  }
+  // 单位的实际绘制由各自定义文件（js/units/*.js 的 draw 函数）负责，这里只做通用包装。
 
   function drawUnit(u) {
-    const s = RTS.Unit.typeStats(u.type);
+    const def = RTS.Units.get(u.type);
     const r = u.radius;
-    const owner = u.owner;
 
     ctx.save();
     ctx.translate(u.x, u.y);
@@ -355,11 +370,24 @@ RTS.Render = (function () {
 
     const strike = u.attackWindup > 0 ? 1 - u.attackWindup / C().attackWindup : 0;
     const recoil = u.attackAnim > 0 ? u.attackAnim / 0.22 : 0;
+    const view = {
+      u,
+      r,
+      owner: u.owner,
+      p: u.animPhase,
+      moving: u.state === 'move' || u.state === 'attackMove' || u.state === 'attack',
+      strike,
+      recoil,
+    };
 
-    if (u.type === 'cavalry') {
-      drawCavalry(u, r, strike, recoil);
+    if (def && typeof def.draw === 'function') {
+      def.draw(ctx, view);
     } else {
-      drawFoot(u, r, strike, recoil);
+      // 兜底：无绘制定义时画圆形占位
+      ctx.fillStyle = (def && def.color) || '#cccccc';
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.restore();
@@ -374,163 +402,6 @@ RTS.Render = (function () {
       ctx.fill();
       ctx.restore();
     }
-  }
-
-  function drawFoot(u, r, strike, recoil) {
-    const owner = u.owner;
-    drawHumanBody(u, r);
-
-    if (u.type === 'spear') {
-      // 盾（后臂）
-      ctx.fillStyle = tunicDark(owner);
-      ctx.strokeStyle = PAL.metal;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(-r * 0.55, -r * 0.15, r * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      // 长矛（突刺动画）
-      const thrust = Math.sin(strike * Math.PI) * r * 0.5;
-      const sy = -r * 0.15;
-      ctx.strokeStyle = PAL.wood;
-      ctx.lineWidth = r * 0.16;
-      ctx.beginPath();
-      ctx.moveTo(r * 0.1, sy);
-      ctx.lineTo(r * 1.5 + thrust, sy);
-      ctx.stroke();
-      ctx.fillStyle = PAL.steel;
-      ctx.beginPath();
-      ctx.moveTo(r * 1.4 + thrust, sy - r * 0.22);
-      ctx.lineTo(r * 1.9 + thrust, sy);
-      ctx.lineTo(r * 1.4 + thrust, sy + r * 0.22);
-      ctx.closePath();
-      ctx.fill();
-    } else if (u.type === 'sword') {
-      // 盾（前臂）
-      ctx.fillStyle = tunicDark(owner);
-      ctx.strokeStyle = PAL.metal;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.roundRect(r * 0.2, -r * 0.55, r * 0.75, r * 0.95, r * 0.2);
-      ctx.fill();
-      ctx.stroke();
-      // 剑（挥击动画）
-      const ang = -1.1 + (strike || recoil) * 1.6;
-      ctx.save();
-      ctx.translate(r * 0.1, -r * 0.1);
-      ctx.rotate(ang);
-      ctx.fillStyle = PAL.steel;
-      ctx.fillRect(0, -r * 0.08, r * 1.5, r * 0.16);
-      ctx.fillStyle = PAL.metal;
-      ctx.fillRect(r * 1.3, -r * 0.14, r * 0.28, r * 0.28);
-      ctx.strokeStyle = PAL.wood;
-      ctx.lineWidth = r * 0.16;
-      ctx.beginPath();
-      ctx.moveTo(-r * 0.15, 0);
-      ctx.lineTo(-r * 0.4, 0);
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      // 弓箭手
-      const pull = (strike || recoil) * r * 0.55;
-      // 弓臂
-      ctx.strokeStyle = PAL.wood;
-      ctx.lineWidth = r * 0.16;
-      ctx.beginPath();
-      ctx.arc(r * 0.3, -r * 0.15, r * 0.85, -1.1, 1.1);
-      ctx.stroke();
-      // 弓弦
-      ctx.strokeStyle = '#e8eef7';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(r * 0.3 + Math.cos(-1.1) * r * 0.85, -r * 0.15 + Math.sin(-1.1) * r * 0.85);
-      ctx.lineTo(r * 0.3 - pull, -r * 0.15);
-      ctx.lineTo(r * 0.3 + Math.cos(1.1) * r * 0.85, -r * 0.15 + Math.sin(1.1) * r * 0.85);
-      ctx.stroke();
-      // 箭
-      if (strike > 0 || recoil > 0) {
-        ctx.strokeStyle = PAL.wood;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(r * 0.3 - pull, -r * 0.15);
-        ctx.lineTo(r * 0.3 + r * 0.9, -r * 0.15);
-        ctx.stroke();
-        ctx.fillStyle = PAL.steel;
-        ctx.beginPath();
-        ctx.moveTo(r * 0.3 + r * 0.9, -r * 0.15 - 3);
-        ctx.lineTo(r * 0.3 + r * 1.15, -r * 0.15);
-        ctx.lineTo(r * 0.3 + r * 0.9, -r * 0.15 + 3);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-  }
-
-  function drawCavalry(u, r, strike, recoil) {
-    const owner = u.owner;
-    const p = u.animPhase;
-    const moving = u.state === 'move' || u.state === 'attackMove' || u.state === 'attack';
-    const bob = moving ? Math.sin(p) * r * 0.08 : 0;
-
-    // 马身
-    ctx.fillStyle = owner === 'player' ? '#8a6a3a' : '#7a3a2a';
-    ctx.beginPath();
-    ctx.ellipse(0, r * 0.1 + bob, r * 1.15, r * 0.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // 马腿（奔跑摆动）
-    ctx.strokeStyle = '#3a2a1a';
-    ctx.lineWidth = r * 0.16;
-    const swing = moving ? Math.sin(p) * r * 0.4 : 0;
-    ctx.beginPath();
-    ctx.moveTo(-r * 0.7, r * 0.4);
-    ctx.lineTo(-r * 0.8, r * 0.85 + swing);
-    ctx.moveTo(-r * 0.3, r * 0.45);
-    ctx.lineTo(-r * 0.25, r * 0.85 - swing);
-    ctx.moveTo(r * 0.3, r * 0.45);
-    ctx.lineTo(r * 0.35, r * 0.85 + swing);
-    ctx.moveTo(r * 0.7, r * 0.4);
-    ctx.lineTo(r * 0.8, r * 0.85 - swing);
-    ctx.stroke();
-    // 马头 + 颈
-    ctx.fillStyle = owner === 'player' ? '#8a6a3a' : '#7a3a2a';
-    ctx.beginPath();
-    ctx.ellipse(r * 1.0, -r * 0.25 + bob, r * 0.5, r * 0.28, 0.4, 0, Math.PI * 2);
-    ctx.fill();
-    // 马鬃
-    ctx.fillStyle = '#3a2a1a';
-    ctx.beginPath();
-    ctx.ellipse(r * 1.05, -r * 0.5 + bob, r * 0.3, r * 0.12, 0.5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 骑手
-    ctx.fillStyle = tunic(owner);
-    ctx.beginPath();
-    ctx.ellipse(-r * 0.1, -r * 0.6 + bob, r * 0.45, r * 0.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = PAL.skin;
-    ctx.beginPath();
-    ctx.arc(-r * 0.05, -r * 1.15 + bob, r * 0.32, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = PAL.metal;
-    ctx.beginPath();
-    ctx.arc(-r * 0.05, -r * 1.2 + bob, r * 0.36, Math.PI, 0);
-    ctx.fill();
-
-    // 骑枪
-    const thrust = Math.sin(strike * Math.PI) * r * 0.4;
-    ctx.strokeStyle = PAL.wood;
-    ctx.lineWidth = r * 0.14;
-    ctx.beginPath();
-    ctx.moveTo(r * 0.2, -r * 0.6 + bob);
-    ctx.lineTo(r * 1.6 + thrust, -r * 0.85 + bob);
-    ctx.stroke();
-    ctx.fillStyle = PAL.steel;
-    ctx.beginPath();
-    ctx.moveTo(r * 1.5 + thrust, -r * 0.85 + bob - r * 0.18);
-    ctx.lineTo(r * 2.0 + thrust, -r * 0.85 + bob);
-    ctx.lineTo(r * 1.5 + thrust, -r * 0.85 + bob + r * 0.18);
-    ctx.closePath();
-    ctx.fill();
   }
 
   function drawUnits() {
@@ -610,37 +481,60 @@ RTS.Render = (function () {
       ctx.translate(p.x, p.y);
       ctx.rotate(p.angle);
 
-      // 尾迹
-      ctx.strokeStyle = 'rgba(200,210,225,0.25)';
-      ctx.lineWidth = 2;
-      for (let i = 1; i < p.trail.length; i++) {
+      // 尾迹（渐隐）
+      if (p.trail && p.trail.length > 1) {
+        for (let i = 1; i < p.trail.length; i++) {
+          const a = i / p.trail.length;
+          ctx.strokeStyle = `rgba(200,214,235,${(a * 0.35).toFixed(3)})`;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(p.trail[i - 1].x - p.x, p.trail[i - 1].y - p.y);
+          ctx.lineTo(p.trail[i].x - p.x, p.trail[i].y - p.y);
+          ctx.stroke();
+        }
+      }
+
+      // 塔箭：从角塔射出的短促发射线
+      if (p.kind === 'tower' && p.source) {
+        ctx.strokeStyle = 'rgba(255,220,130,0.5)';
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.moveTo(p.trail[i - 1].x - p.x, p.trail[i - 1].y - p.y);
-        ctx.lineTo(p.trail[i].x - p.x, p.trail[i].y - p.y);
+        ctx.moveTo(p.source.x - p.x, p.source.y - p.y);
+        ctx.lineTo(0, 0);
         ctx.stroke();
       }
 
-      // 箭杆
+      // 箭杆（塔箭更粗更暗，弓箭细长）
       ctx.strokeStyle = p.kind === 'tower' ? '#3a2a1a' : '#8a6a3a';
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = p.kind === 'tower' ? 3.2 : 2.2;
+      ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(-9, 0);
+      ctx.moveTo(-10, 0);
       ctx.lineTo(8, 0);
       ctx.stroke();
-      // 箭头
-      ctx.fillStyle = '#c7d2e0';
+      // 箭头（金属，指向飞行方向）
+      const grad = ctx.createLinearGradient(8, 0, 15, 0);
+      grad.addColorStop(0, '#dbe4f0');
+      grad.addColorStop(1, '#8fa3c2');
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.moveTo(8, -3);
-      ctx.lineTo(14, 0);
-      ctx.lineTo(8, 3);
+      ctx.moveTo(8, -3.4);
+      ctx.lineTo(15, 0);
+      ctx.lineTo(8, 3.4);
       ctx.closePath();
       ctx.fill();
-      // 尾羽
-      ctx.fillStyle = '#e8eef7';
+      // 尾羽（两片，更立体）
+      ctx.fillStyle = p.owner === 'player' ? '#4aa8ff' : '#ff5a5a';
       ctx.beginPath();
-      ctx.moveTo(-9, -3);
-      ctx.lineTo(-13, 0);
-      ctx.lineTo(-9, 3);
+      ctx.moveTo(-10, 0);
+      ctx.lineTo(-14, -3.6);
+      ctx.lineTo(-9, -1.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(-10, 0);
+      ctx.lineTo(-14, 3.6);
+      ctx.lineTo(-9, 1.5);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
@@ -822,6 +716,7 @@ RTS.Render = (function () {
   // ---------------------------------------------------------------- 小地图
 
   function buildTerrainMinimap() {
+    if (!RTS.world) return; // 主菜单阶段尚无地图
     terrainMinimap = document.createElement('canvas');
     terrainMinimap.width = minimap.width;
     terrainMinimap.height = minimap.height;
@@ -833,8 +728,8 @@ RTS.Render = (function () {
 
     mc.fillStyle = '#24402a';
     mc.fillRect(0, 0, minimap.width, minimap.height);
-    for (let ty = 0; ty < Cfg.mapHeightTiles; ty++) {
-      for (let tx = 0; tx < Cfg.mapWidthTiles; tx++) {
+    for (let ty = 0; ty < RTS.world.H; ty++) {
+      for (let tx = 0; tx < RTS.world.W; tx++) {
         const t = RTS.World.terrainAt(tx, ty);
         if (t === G.water) mc.fillStyle = '#2e5f8a';
         else if (t === G.forest) mc.fillStyle = '#1d4a2a';
@@ -844,6 +739,7 @@ RTS.Render = (function () {
         mc.fillRect(tx * Cfg.tileSize * sx, ty * Cfg.tileSize * sy, Math.max(1, Cfg.tileSize * sx), Math.max(1, Cfg.tileSize * sy));
       }
     }
+    terrainMapId = RTS.world.mapId;
   }
 
   function drawMinimap() {
@@ -853,6 +749,9 @@ RTS.Render = (function () {
     const sx = w / Cfg.worldWidth;
     const sy = h / Cfg.worldHeight;
     const mctx = minimapCtx;
+
+    // 惰性构建 / 换图后重建地形小地图
+    if (!terrainMinimap || terrainMapId !== RTS.world.mapId) buildTerrainMinimap();
 
     if (terrainMinimap) mctx.drawImage(terrainMinimap, 0, 0);
     else {

@@ -59,22 +59,33 @@ RTS.Production = (function () {
   function spawnUnit(faction, type) {
     const base = faction.base;
     const Cfg = C();
-    let x = base.x;
-    let y = base.y;
-    // 出生点：基地附近随机偏移，避免重叠
-    for (let i = 0; i < 12; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      const r = Cfg.baseRadius + 18 + Math.random() * 40;
-      const nx = base.x + Math.cos(ang) * r;
-      const ny = base.y + Math.sin(ang) * r;
-      if (RTS.World.isWalkablePx(nx, ny)) {
-        x = nx;
-        y = ny;
-        break;
+    // 出生点：城堡城门（朝敌方一侧的固定位置），不再随机散布
+    const dirX = base.owner === 'player' ? 1 : -1;
+    let x = base.x + dirX * (Cfg.baseRadius + Cfg.spawnGateDist);
+    let y = base.y + Cfg.baseRadius * 0.55;
+    // 城门被占用时向两侧错开，保证可通行且不重叠
+    if (!RTS.World.isWalkablePx(x, y)) {
+      for (let i = 1; i <= 6; i++) {
+        const alt = [
+          { x, y: base.y - i * 14 },
+          { x, y: base.y + i * 14 },
+          { x: base.x + dirX * (Cfg.baseRadius + Cfg.spawnGateDist + i * 12), y },
+        ];
+        const ok = alt.find((p) => RTS.World.isWalkablePx(p.x, p.y));
+        if (ok) {
+          x = ok.x;
+          y = ok.y;
+          break;
+        }
       }
     }
     const unit = RTS.Unit.create(faction === RTS.state.player ? 'player' : 'enemy', type, x, y);
     faction.units.set(unit.id, unit);
+
+    // 出生后立即前往集结点（集结点默认在城堡前方，可被玩家/AI 重新设置）
+    const rx = base.rallyX != null ? base.rallyX : base.x;
+    const ry = base.rallyY != null ? base.rallyY : base.y;
+    RTS.Unit.orderAttackMove(unit, rx, ry);
     return unit;
   }
 
