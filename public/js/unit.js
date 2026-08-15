@@ -47,6 +47,8 @@ RTS.Unit = (function () {
       facingX: owner === 'player' ? 1 : -1,
       flashTimer: 0,
       deathTimer: -1,
+      animPhase: Math.random() * Math.PI * 2, // 行走动画相位
+      attackAnim: 0, // 攻击挥击/拉弓后摇计时
     };
   }
 
@@ -63,7 +65,7 @@ RTS.Unit = (function () {
   }
 
   function targetRadius(target) {
-    return target.kind === 'unit' ? target.ref.radius : target.ref.radius;
+    return target.ref.radius;
   }
 
   function distTo(unit, tx, ty) {
@@ -91,6 +93,7 @@ RTS.Unit = (function () {
     } else if (RTS.World.isWalkablePx(unit.x, ny)) {
       unit.y = ny;
     }
+    if (Math.abs(dx) > 0.01) unit.facingX = dx >= 0 ? 1 : -1;
     return false;
   }
 
@@ -183,12 +186,25 @@ RTS.Unit = (function () {
           const d = distTo(unit, unit.attackTarget.ref.x, unit.attackTarget.ref.y);
           const reach = unit.range + targetRadius(unit.attackTarget) + 8; // 8px 容错
           if (d <= reach) {
-            RTS.Combat.deliverAttack(unit, unit.attackTarget);
+            if (unit.ranged) {
+              // 弓箭手：射出实体箭矢
+              RTS.Projectiles.spawnArrow(unit, unit.attackTarget);
+            } else {
+              // 近战：立即结算 + 挥击动画
+              RTS.Combat.deliverAttack(unit, unit.attackTarget);
+            }
+            unit.attackAnim = 0.22;
           }
         }
       }
     }
+    if (unit.attackAnim > 0) unit.attackAnim = Math.max(0, unit.attackAnim - dt);
     if (unit.flashTimer > 0) unit.flashTimer -= dt;
+
+    // 行走动画相位推进
+    if (unit.state === 'move' || unit.state === 'attackMove' || unit.state === 'attack') {
+      unit.animPhase += dt * unit.speed * 0.22;
+    }
 
     const target = unit.attackTarget && targetAlive(unit.attackTarget) ? unit.attackTarget : null;
     if (!target) unit.attackTarget = null;

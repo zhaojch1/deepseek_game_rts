@@ -1,6 +1,13 @@
 # DeepSeek Game RTS
 
-网页端二维实时策略（RTS）游戏 —— 第一阶段：出兵系统。运行在浏览器中，玩家扮演指挥官，生产古代冷兵器兵种、框选部队、下达移动与攻击指令，与电脑对手实时对抗。
+网页端二维实时策略（RTS）游戏。运行在浏览器中，玩家扮演指挥官，生产古代冷兵器兵种、框选部队、下达移动与攻击指令，占领地图资源点、升级科技，与电脑对手实时对抗。
+
+## 第二阶段（v2）更新
+
+1. **修复 AI 集结后原地反复移动碰撞**：集结/进攻/回防/撤退等低层指令改为「相位切换 + 节流周期」触发，且对已到位的单位不再重复下令；集结点与编队偏移稳定化。AI 部队集结后会像玩家单位一样静止待命。
+2. **单位视觉与动画重做**：纯矢量精细绘制（头盔/盾牌/长矛/弓/马匹/城堡），弓箭手射出会飞行的实体箭矢，近战有挥击/突刺动作，单位死亡有倒地消散动画；HUD 改为 emoji 图标风格并新增资源与科技面板。
+3. **更多资源 + 复杂地图 + 战争复杂化**：新增 `木材`、`石料` 两种资源与金/木/石资源点（单位驻守逐步占领）；地图加入中央河流与三座桥梁（上/中/下三路）、森林（远程掩体）、山脉、湖泊；新增攻击/护甲/城防三线科技；AI 会派小队占领资源点、多路分兵进攻并自主升级，避免「一波流胡冲」。
+4. **城堡防御机制**：基地变为带四座角塔的城堡，可同时射出多支箭矢自动守护；城防升级可提升箭塔数量与伤害。
 
 ## 运行
 
@@ -56,6 +63,8 @@ API Key 仅保存在后端，绝不出现在前端。
 | 滚轮 / 方向键 | 缩放 / 平移 |
 | F2 | 切换调试面板（AI 决策来源） |
 
+> 科技升级面板位于屏幕左侧（攻击/护甲用木材、城防用石料）；资源点需派部队驻守占领，占领后持续产出对应资源。地图中央河流仅三座桥梁可渡，森林为单位提供远程减伤掩体。
+
 ## 目录结构
 
 ```
@@ -73,14 +82,16 @@ deepseek_game_rts/
         ├── main.js           # 入口 + 主循环 + 胜负判定
         ├── input.js          # 鼠标/键盘/框选
         ├── camera.js         # 相机与视野
-        ├── world.js          # 地图与静态实体
-        ├── unit.js           # 单位实体与状态机
+        ├── world.js          # 地图/地形/资源点/基地
+        ├── unit.js           # 单位实体与状态机 + 动画
         ├── pathfinding.js    # 网格 A* 寻路
-        ├── combat.js         # 空间分桶/索敌/克制结算
+        ├── combat.js         # 空间分桶/索敌/克制/护甲/掩体/尸体
         ├── production.js     # 经济与生产队列
+        ├── resources.js      # 资源占领/木石经济/科技升级/城堡防御
+        ├── projectiles.js    # 弓箭/塔箭投射物
         ├── ai.js             # 规则 AI + DeepSeek 指挥官
-        ├── render.js         # 渲染 + 小地图
-        └── ui.js             # HUD/面板/提示
+        ├── render.js         # 地形/单位动画/城堡/箭矢/小地图
+        └── ui.js             # HUD/面板/提示/升级
 ```
 
 ## 调参
@@ -101,7 +112,7 @@ deepseek_game_rts/
 - **模块加载顺序**（`index.html` 中严格规定，**不可调换**，因为 `main.js` 的 boot IIFE 依赖所有前置模块已定义）：
 
 ```
-config → world → pathfinding → camera → unit → combat → production → ai → input → render → ui → main
+config → world → pathfinding → camera → unit → combat → production → resources → projectiles → ai → input → render → ui → main
 ```
 
 ## 2. 全局状态：`RTS.state`
@@ -118,20 +129,26 @@ RTS.state = {
   enemy:  Faction, // 敌方
   selection: Set,  // 玩家当前选中的单位 id 集合
   damageNumbers: [], // 飘字数组
+  resources: { nodes: [...] }, // 资源点（金/木/石），每项 {id,type,x,y,radius,owner,playerWeight,enemyWeight}
+  corpses: [],     // 死亡动画尸体（纯渲染）
   ai: RTS.AI.init(), // AI 内部状态
   orderMarker,     // 最近一次移动/攻击指令的落点标记（渲染淡出）
 }
 
 Faction = {
   owner: 'player' | 'enemy',
-  gold, goldRate, populationCap,
-  base: { x, y, hp, maxHp, radius, owner },
+  gold, goldRate,           // 金币：被动增长 + 金矿节点
+  wood, woodRate,           // 木材：伐木场节点产出，用于攻击/护甲升级
+  stone, stoneRate,         // 石料：采石场节点产出，用于城防升级
+  populationCap,
+  base: { x, y, hp, maxHp, radius, owner, defenseCooldown, firingFlash },
   productionQueue: [ProductionOrder],
   units: Map<id, Unit>,    // 注意是 Map，不是数组
+  upgrades: { attack, armor, defense }, // 三线科技等级（0..upgradeMaxLevel）
 }
 
 // 另外两个模块级全局：
-RTS.world  // 由 World.create() 生成，含 walkable Uint8Array + W/H 尺寸
+RTS.world  // 由 World.create() 生成，含 walkable Uint8Array + terrain Uint8Array + W/H 尺寸
 RTS.CONFIG // 平衡常量（config.js）
 ```
 
@@ -154,10 +171,14 @@ RTS.CONFIG // 平衡常量（config.js）
 - `range`（兵种射程）是「格」单位 → 实际像素射程 = `range * rangeScale(34)`，经 `RTS.rangePx(type)` 换算。
 - `speed`（移速）是「格/秒」→ 实际像素速度 = `speed * speedScale(48)`，在 `Unit.create` 里换算。
 - 克制表 `counters`：行=攻击方，列=受击方，值>1 克制、<1 被克制。
+- **v2 新增分组**：`terrainTypes`（地形枚举）、`resourceNodes`（金/木/石收入与半径）、`captureSpeed`（占领速度）、`upgrades`（三线科技成本/加成）、`baseDefense*`（城堡箭塔射程/伤害/箭数/间隔）、`arrowSpeed`/`towerArrowSpeed`（投射物速度）、`coverRangedMul`（森林掩体）、`corpseDuration`（死亡动画时长）。
 
-### world.js（地图）
-- `walkable` 是扁平 `Uint8Array`，索引 `idx = y * W + x`。
-- 边界一圈 + 障碍簇（固定种子 1337 的确定性伪随机）+ 基地占位区（`markBaseBlocked`）都标记为不可通行。
+### world.js（地图/地形/资源点）
+- `walkable` 是扁平 `Uint8Array`，索引 `idx = y * W + x`；`terrain` 是同尺寸的 `Uint8Array`（`terrainTypes`：0 草地 / 1 水域 / 2 森林 / 3 岩石 / 4 道路）。
+- 地图完全确定性：中央纵向河流（4 格宽）配三座桥梁，把战场切为上/中/下三路；另有湖泊、山脉、森林（掩体）、中央大道，左右镜像对称保证公平。
+- `isCoverPx(x,y)`：是否处于森林掩体（远程伤害减伤，见 `coverRangedMul`）。
+- `placeResources()`：对称生成金矿/伐木场/采石场资源点，返回 nodes 数组（存入 `RTS.state.resources`）。
+- `markBaseBlocked`：基地占位区标记不可通行（地形记为道路，供城堡绘制）。
 - 玩家基地在左侧（x=9 格），敌方在右侧（x=W-9 格），y 居中。
 - `nearestWalkablePx(x,y)`：把不可通行的目标点吸附到最近可通行格中心（移动/攻击目标都要先过这个）。
 
@@ -177,21 +198,37 @@ RTS.CONFIG // 平衡常量（config.js）
 - **卡住检测**：用 0.5s 窗口的**净位移**判断（`stuckTimer`/`stuckRef`/`isStuck`），避免把分离力震荡误判。真正卡住且被敌人挡时，`move` 状态会转 `attackMove` 清障后继续。
 - **驻守点（hold）机制**：每个单位有 `holdX/holdY`。出生时=出生点；`orderMove`/`orderAttackMove` 都会更新为目标点。`idle` 状态下的自动索敌是「驻守反击」——先索敌追击，敌人死后归位到 hold 点。这使 AI 集结的部队能保持阵形，不散乱跑满全图。
 - **右键移动 = 无条件前进**：`move` 状态途中**不自动索敌**，保证玩家随时可改向/掉头（这是早期 bug 修复的重点）。
-- **攻击**：`engage` 在射程内进入前摇（`attackWindup`）→ 前摇结束结算伤害；`attackCooldown` 控制攻速。
+- **攻击**：`engage` 在射程内进入前摇（`attackWindup`）→ 前摇结束结算；`attackCooldown` 控制攻速。
+- **近战 vs 远程结算差异**：前摇结束时，近战直接 `Combat.deliverAttack`（立即伤害 + 挥击动画），远程（`ranged`）则 `Projectiles.spawnArrow` 射出实体箭矢，命中后结算。
+- **动画状态**：`animPhase`（行走摆动）、`attackAnim`（挥击/拉弓后摇）、`facingX`（朝向，由 `steerToward`/`engage` 更新）。
 - **`attackMove`**：沿途自动索敌（`attackMoveAcquireRadius=280`），到达后落位驻守转 `idle`。
 
-### combat.js（战斗/索敌/分离）
+### combat.js（战斗/索敌/分离/伤害）
 - **空间分桶**：`rebuildHash()` 每帧按 `spatialCellSize=96` 把单位塞进 Map 桶，`query(x,y,r)` 邻域查询，避免 O(n²)。
 - **索敌 `acquire(unit, range)`**：返回最近敌方目标，优先单位，其次基地（在 range+baseRadius 内）。
-- **伤害结算**：`deliverAttack` = 攻击力 × `RTS.counterMul`（克制，向下取整，最低 1）。攻击基地额外乘 `baseDamageMultiplier=0.6`。
+- **伤害结算（v2 重构）**：`applyUnitDamage(attackerType, attackValue, target, isRanged)` 统一处理「克制 × 森林掩体（远程）− 护甲减伤」，最低 1；`hitBase` 处理基地伤害（`baseDamageMultiplier=0.6`）；`deliverAttack` 供近战单位直接调用，远程走 `Projectiles`。
+- **有效攻击力**：`RTS.Resources.effectiveAttack(unit)` = 基础攻击 × (1 + 攻击科技 × `mul`)，近战与弓箭都在结算前换算。
 - **单位分离**：`applySeparation` 相邻单位互斥，防堆叠。
-- **死亡**：`kill` 从 `faction.units` Map 删除，并从 player 的 `selection` 移除。
+- **死亡/尸体**：`kill` 从 `faction.units` Map 删除、从 player `selection` 移除，并向 `state.corpses` 推入尸体；`ageCorpses` 老化，供死亡动画渲染。
 
 ### production.js（经济与生产）
 - 被动军费：`currentGoldRate(time)` = base(5) + 每 60s +0.5，封顶 10，军费上限 2000。
 - 生产队列 FIFO，`queued→training`，训练完成 `spawnUnit`（基地附近随机偏移出生）。
 - `usedPop = units.size + productionQueue.length`（**排队也占人口**），人口上限 100。
 - 取消：`queued` 全额返还，`training` 返还 50%（`cancel` 函数，目前 UI 未暴露取消入口）。
+
+### resources.js（资源/科技/城堡防御）
+- **占领 `captureUpdate(dt)`**：每个资源点统计其半径内玩家/敌方存活单位数量，一方独在则其权重按 `captureSpeed` 上升、另一方下降，权重 ≥1 才易主（无人驻守时缓慢回落）。节点类型 `gold/wood/stone`。
+- **收入 `incomeUpdate(dt)`**：按节点归属给对应阵营加金币/木材/石料；同时汇总各资源速率供 HUD 显示（金币速率 = 被动 + 金矿）。
+- **升级 `upgrade/canUpgrade/upgradeCost`**：`attack`（木，攻击倍率）、`armor`（木，固定减伤）、`defense`（石，城堡箭塔 + 耐久）。城防升级时基地 `maxHp` 与当前 `hp` 同步增加。
+- **城堡防御 `baseDefenseUpdate(dt)`**：每个基地有 `defenseCooldown`，到点后在 `baseDefenseRange` 内取最近的敌方单位，一次射出 `baseDefenseArrows + 城防等级×arrowsPerLevel` 支塔箭（`Projectiles.spawnTowerArrow`），伤害随城防等级放大。
+- **有效攻击力 `effectiveAttack(unit)`**：被 `combat.js` 调用。
+
+### projectiles.js（投射物）
+- 全局 `list` 保存飞行中的箭矢/塔箭：`{x,y,target,speed,damage,attackerType,owner,kind:'arrow'|'tower',angle,trail}`。
+- `spawnArrow(unit, target)`：弓箭手前摇结束时射出（伤害=有效攻击力）；`spawnTowerArrow(base, target, damage)`：城堡箭塔射出。
+- `update(dt)`：追踪目标当前位置；目标已死亡则落空消失；命中后调用 `Combat.applyUnitDamage(... isRanged=true)` 或 `Combat.hitBase`。
+- `clear()`：对局重置时清空。
 
 ### ai.js（敌方 AI）—— **双层结构**
 1. **规则层（保底）**：高层「指挥态势」状态机 + 低层单位指令。
@@ -215,20 +252,27 @@ RTS.CONFIG // 平衡常量（config.js）
 
 ⚠️ **重要**：`requestDeepSeek` 的 payload 里带了 `phase`（当前态势），供模型决策参考。若改 prompt 或字段，注意服务端 `clampDecision` 与前端 `applyDecision` 同步。
 
+**v2 低层指令（修复集结打转 + 复杂化）**：
+- 集结/进攻/回防/撤退只在 `phaseChanged` 或节流周期触发；`rally()` 用稳定的集结点 + 网格编队偏移，且对已到位（< `formationSpacing×0.9`）的单位跳过，避免原地反复移动碰撞。
+- `launchAttack()` 按兵力把部队拆成 1/2/3 路（上/中/下）推进。
+- `captureNodes()` 在 build/harass 阶段派小队去占点；`aiUpgrade()` 周期用木/石升级（城防优先，攻击/护甲交替）。
+
 ### input.js（交互）
 - 左键框选/单选/Shift 追加；右键移动/攻击；A+左键攻击移动；Q/W/E/R 生产。
 - **注意**：相机平移用方向键，不用 WASD（W 被生产快捷键占用）。空格回基地。
 - 多单位移动用 `formationOffsets` 生成松散编队偏移（按矩阵排列）。
 
 ### render.js / ui.js
-- `render.js`：地形/障碍/基地/单位/血条/选中圈/飘字/指令落点标记/小地图。**裁剪**只画视野内对象。
-- `ui.js`：HUD（军费/人口/时间/AI来源）、生产面板、选中信息、toast、结束覆盖层、F2 调试面板（含 AI 态势显示）。
+- `render.js`：地形（草地/水域/森林/山脉/道路分块绘制）、城堡（四角塔 + 城门 + 旗帜 + 塔箭闪光）、资源点、精细矢量单位（头盔/盾牌/长矛/弓/马匹 + 行走/攻击动画）、尸体、实体箭矢、血条/选中圈/飘字/指令标记、小地图（地形预渲染到离屏 canvas）。**裁剪**只画视野内对象。
+- `ui.js`：HUD（金币/木材/石料/人口/时间/AI来源）、生产面板、**科技升级面板**、选中信息、toast、结束覆盖层、F2 调试面板（含资源与升级等级）。
 
 ### main.js（主循环）
 ```
 boot(): UI.init → Match.start → Render.init → Input.init
-frame(): 固定步长 STEP=1/60 模拟（Production→AI→Combat.rebuildHash→units→separation→checkEnd）
-          + 实时渲染 + Input/UI 每帧 update
+frame(): 固定步长 STEP=1/60 模拟
+  Production → AI → Combat.rebuildHash → Resources.captureUpdate → Resources.incomeUpdate
+  → Resources.baseDefenseUpdate → units → Projectiles.update → separation → damageNumbers → corpses → checkEnd
+  + 实时渲染 + Input/UI 每帧 update
 ```
 胜负判定 `checkEnd`：任一方基地 hp≤0 即胜/负；20 分钟封顶按「兵力×10 + 基地耐久」判平/胜。
 
@@ -242,22 +286,36 @@ frame(): 固定步长 STEP=1/60 模拟（Production→AI→Combat.rebuildHash→
 6. **`.env` 绝不提交**（`.gitignore` 已排除）。真实 Key 只应存在于云端 `.env`，`.env.example` 是模板。
 7. **服务端超时用 8s**（原需求写 5s，实测 flash 冷启动偶发超 5s）。失败走 `degraded` 降级，前端静默转规则 AI。
 8. **DeepSeek 只在对局 running 阶段调用**（`maybeRequestDeepSeek` 检查 `phase==='running'`），主菜单/暂停不调用，控成本。
+9. **AI 低层指令必须节流**：`rally/defend/retreat/launchAttack` 若每帧都下达会重现「原地反复移动碰撞」。当前用 `phaseChanged` + `rallyTimer`/`commandTimer`/`nextAttackTime` 节流，且对已到位单位跳过。新增 AI 行为时务必沿用该模式。
+10. **伤害结算统一走 `Combat.applyUnitDamage`**：近战（`isRanged=false`）、弓箭/塔箭（`isRanged=true`）都要经过它，才能正确吃到克制/森林掩体/护甲减伤。不要另写一套扣血逻辑。
+11. **投射物目标引用是活对象**：`Projectiles` 里 `target.ref` 指向单位/基地对象，命中时再判 `hp>0`；单位死亡后会被移出 `units` Map，但对象仍在内存中，投射物通过 `hp<=0` 判断落空消失。
+12. **资源点占领需要单位驻守**：占领靠 `Resources.captureUpdate` 逐帧累计权重，权重 ≥1 才易主；无人驻守会缓慢回落。测试资源收入时需让单位停在节点半径内。
 
 ## 5. 如何快速验证（无头模拟）
 
 项目早期用 Node + `vm` 沙盒做无头测试（stub 掉 DOM/fetch/requestAnimationFrame），可复刻此模式验证逻辑而不开浏览器：
 
 ```js
-// 伪代码：在 vm 沙盒里按顺序加载 config→world→...→ai，然后手动设 RTS.state、
-// 驱动 RTS.Production.update / RTS.AI.update / RTS.Unit.update / RTS.Combat.* 逐 STEP 跑
+// 伪代码：在 vm 沙盒里按顺序加载 config→world→pathfinding→camera→unit→combat→production→resources→projectiles→ai，
+// 然后手动设 RTS.state、驱动 Production/AI/Combat.rebuildHash/Resources.captureUpdate/Resources.incomeUpdate/
+// Resources.baseDefenseUpdate/Unit.update/Projectiles.update/Combat.* 逐 STEP 跑。
+// 需 stub window.RTS、fetch、RTS.UI.toast。
 ```
 
-要点：`RTS.state` 需手工构造（`Match.createState` 依赖 DOM，纯逻辑测试可手动 mkFaction）；`RTS.world` 需先 `World.create()` + `placeBases()`。
+要点：`RTS.state` 需手工构造（`Match.createState` 依赖 DOM，纯逻辑测试可手动 mkFaction，记得带 `upgrades`/`wood`/`stone`/`resources.nodes`/`corpses` 字段）；`RTS.world` 需先 `World.create()` + `placeBases()` + `placeResources()`。
 
 ## 6. 需求文档映射（验收对照）
 
-需求文档 `需求文档.md` 的 AC-01 ~ AC-09 大多已实现。**尚未实现/可扩展点**：
+需求文档 `需求文档.md` 的 AC-01 ~ AC-09 均已实现，v2 在此基础上新增：
+
+- ✅ 资源系统（金/木/石三资源 + 地图资源点占领）。
+- ✅ 复杂地图（河流三路 + 森林掩体 + 山脉/湖泊/道路）。
+- ✅ 科技升级（攻击/护甲/城防三线）。
+- ✅ 城堡防御（基地箭塔自动守护，可升级）。
+- ✅ 单位动画（弓箭飞行、近战挥击、死亡倒地）与 HUD 美化。
+
+**尚未实现/可扩展点**：
 
 - 生产队列的**取消**逻辑已写（`Production.cancel`）但 **UI 未暴露取消按钮**。
 - 音效/背景音乐、AI 难度分档、多人联机 —— 需求文档「待确认事项」，未实现。
-- 基地「随时间获得轻微防御修正」（R-003）——`baseDefensePerMin` 目前为 0，未启用。
+- 基地「随时间获得轻微防御修正」（R-003）的 `baseDefensePerMin` 仍为 0（v2 用「城防科技」实现了主动防御，而非随时间自动加防）。

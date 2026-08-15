@@ -100,27 +100,43 @@ RTS.Combat = (function () {
     return best;
   }
 
-  /** 结算一次攻击伤害（含克制倍率） */
+  /** 结算一次单位受到的伤害（克制 + 掩体 + 护甲），返回实际伤害值 */
+  function applyUnitDamage(attackerType, attackValue, t, isRanged) {
+    if (!t || t.hp <= 0) return 0;
+    const mul = RTS.counterMul(attackerType, t.type);
+    let dmg = Math.floor(attackValue * mul);
+    // 远程攻击者在森林掩体内的单位身上有减伤
+    if (isRanged && RTS.World.isCoverPx(t.x, t.y)) {
+      dmg = Math.floor(dmg * C().coverRangedMul);
+    }
+    // 护甲升级：固定减伤
+    const armorLvl = (RTS.state[t.owner].upgrades && RTS.state[t.owner].upgrades.armor) || 0;
+    dmg -= armorLvl * C().upgrades.armor.flat;
+    if (dmg < 1) dmg = 1;
+    RTS.Unit.damage(t, dmg);
+    spawnDamageNumber(t.x, t.y, dmg, mul > 1 ? '#ffd24e' : mul < 1 ? '#9fb0c8' : '#ffffff');
+    return dmg;
+  }
+
+  /** 结算一次对基地的伤害 */
+  function hitBase(attackValue, base) {
+    if (!base || base.hp <= 0) return 0;
+    const dmg = Math.max(1, Math.floor(attackValue * C().baseDamageMultiplier));
+    base.hp -= dmg;
+    spawnDamageNumber(base.x + (Math.random() - 0.5) * 24, base.y - base.radius * 0.5, dmg, '#ff8a5a');
+    if (base.hp <= 0) {
+      base.hp = 0;
+      RTS.Match && RTS.Match.checkEnd();
+    }
+    return dmg;
+  }
+
+  /** 近战/瞬时攻击结算（由单位直接调用） */
   function deliverAttack(unit, target) {
-    const st = RTS.state;
     if (target.kind === 'unit') {
-      const t = target.ref;
-      if (t.hp <= 0) return;
-      const mul = RTS.counterMul(unit.type, t.type);
-      let dmg = Math.floor(unit.attack * mul);
-      if (dmg < 1) dmg = 1;
-      RTS.Unit.damage(t, dmg);
-      spawnDamageNumber(t.x, t.y, dmg, mul > 1 ? '#ffd24e' : mul < 1 ? '#9fb0c8' : '#ffffff');
+      applyUnitDamage(unit.type, RTS.Resources.effectiveAttack(unit), target.ref, false);
     } else if (target.kind === 'base') {
-      const base = target.ref;
-      if (base.hp <= 0) return;
-      const dmg = Math.max(1, Math.floor(unit.attack * C().baseDamageMultiplier));
-      base.hp -= dmg;
-      spawnDamageNumber(unit.x + (base.x - unit.x) * 0.2, unit.y + (base.y - unit.y) * 0.2, dmg, '#ff8a5a');
-      if (base.hp <= 0) {
-        base.hp = 0;
-        RTS.Match && RTS.Match.checkEnd();
-      }
+      hitBase(RTS.Resources.effectiveAttack(unit), target.ref);
     }
   }
 
@@ -135,15 +151,37 @@ RTS.Combat = (function () {
     });
   }
 
-  /** 单位死亡移除 */
+  /** 单位死亡移除（生成尸体供死亡动画渲染） */
   function kill(unit) {
     const st = RTS.state;
+    if (st.corpses) {
+      st.corpses.push({
+        x: unit.x,
+        y: unit.y,
+        type: unit.type,
+        owner: unit.owner,
+        facingX: unit.facingX,
+        radius: unit.radius,
+        deathTimer: 1,
+      });
+    }
     const faction = st[unit.owner];
     if (faction.units.has(unit.id)) {
       faction.units.delete(unit.id);
     }
     if (unit.owner === 'player' && st.selection) {
       st.selection.delete(unit.id);
+    }
+  }
+
+  /** 尸体老化 */
+  function ageCorpses(dt) {
+    if (!RTS.state || !RTS.state.corpses) return;
+    const arr = RTS.state.corpses;
+    const dur = C().corpseDuration || 0.8;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      arr[i].deathTimer -= dt / dur;
+      if (arr[i].deathTimer <= 0) arr.splice(i, 1);
     }
   }
 
@@ -197,7 +235,10 @@ RTS.Combat = (function () {
   return {
     acquire,
     deliverAttack,
+    applyUnitDamage,
+    hitBase,
     kill,
+    ageCorpses,
     query,
     rebuildHash,
     applySeparation,

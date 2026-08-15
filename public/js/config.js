@@ -119,6 +119,39 @@ RTS.CONFIG = {
   attackWindup: 0.15, // 攻击前摇（秒）
   damageNumberLifetime: 0.9,
 
+  // ---------------------------------------------------------------- 地形（渲染 / 掩体）
+  terrainTypes: { grass: 0, water: 1, forest: 2, rock: 3, road: 4 },
+  coverRangedMul: 0.7, // 森林掩体：单位在树林中受到远程伤害的倍率
+
+  // ---------------------------------------------------------------- 资源（金 / 木 / 石）
+  resourceNodes: {
+    gold: { income: 2.2, radius: 110, color: '#f2c14e' },
+    wood: { income: 1.4, radius: 110, color: '#7fc97f' },
+    stone: { income: 1.0, radius: 110, color: '#9fb0c8' },
+  },
+  resourceCap: 999, // 木/石上限
+  captureSpeed: 0.8, // 占领权重变化 / 秒（需累积到 1 才易主）
+
+  // ---------------------------------------------------------------- 升级
+  upgradeMaxLevel: 3,
+  upgrades: {
+    attack: { name: '军备锻造', resource: 'wood', costs: [120, 220, 340], mul: 0.15 },
+    armor: { name: '铁甲研究', resource: 'wood', costs: [100, 180, 280], flat: 2 },
+    defense: { name: '城防工事', resource: 'stone', costs: [150, 260, 400], hpBonus: 700, arrowsPerLevel: 1 },
+  },
+
+  // ---------------------------------------------------------------- 基地防御（城堡箭塔）
+  baseDefenseRange: 300, // 箭塔射程（px）
+  baseDefenseDamage: 14, // 单支塔箭基础伤害
+  baseDefenseInterval: 1.4, // 每轮箭雨间隔（秒）
+  baseDefenseArrows: 2, // 每轮基础箭数
+  baseDefenseDamagePerLevel: 0.35, // 每级城防提升的塔箭伤害倍率
+
+  // ---------------------------------------------------------------- 投射物
+  arrowSpeed: 540, // 弓箭飞行速度 px/s
+  towerArrowSpeed: 470, // 塔箭飞行速度 px/s
+  corpseDuration: 0.8, // 死亡动画时长（秒）
+
   // ---------------------------------------------------------------- AI
   aiDecisionIntervalMin: 20, // DeepSeek 调用间隔下限（秒）
   aiDecisionIntervalMax: 30, // 上限（秒）

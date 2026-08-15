@@ -28,6 +28,7 @@ RTS.AI = (function () {
   function countArmy(faction) {
     const counts = { spear: 0, sword: 0, archer: 0, cavalry: 0, total: 0 };
     faction.units.forEach((u) => {
+      if (u.hp <= 0) return;
       counts[u.type]++;
       counts.total++;
     });
@@ -75,6 +76,10 @@ RTS.AI = (function () {
       waveElapsed: 0,
       waveDuration: 22,
       rallyPoint: { x: 0, y: 0 },
+      rallyTimer: 0, // 集结补位间隔
+      commandTimer: 0, // 低层指令节流（defend/retreat）
+      nodeTimer: 3, // 资源占领任务间隔
+      upgradeTimer: 4, // 升级评估间隔
     };
   }
 
@@ -184,45 +189,77 @@ RTS.AI = (function () {
 
   // ---------------------------------------------------------------- 低层指令
 
-  /** 计算/刷新集结点（基地前方向着敌方一侧的偏置点） */
+  /** 计算集结点（基地前方向着敌方一侧的稳定偏置点，进入集结相位后不变） */
   function rallyPointOf(ai) {
     const st = RTS.state;
     const base = st.enemy.base;
     const dirX = st.player.base.x > base.x ? 1 : -1;
     const dist = C().aiRallyPointDist;
-    return { x: base.x + dirX * dist, y: base.y + (Math.random() - 0.5) * 80 };
+    return { x: base.x + dirX * dist, y: base.y };
   }
 
-  /** 让部队向集结点集结（松散编队） */
+  /** 生成稳定的松散编队偏移（网格排列，避免每次随机抖动） */
+  function rallySlots(n) {
+    const spacing = C().formationSpacing;
+    const cols = Math.ceil(Math.sqrt(Math.max(1, n)));
+    const slots = [];
+    for (let i = 0; i < Math.max(1, n); i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      slots.push({
+        x: (col - (cols - 1) / 2) * spacing,
+        y: (row - (cols - 1) / 2) * spacing,
+      });
+    }
+    return slots;
+  }
+
+  /**
+   * 让部队向集结点集结。
+   * 只在进入相位时 / 节流周期内补位，且已到位的单位不再重复下令——
+   * 这是修复「集结后原地反复移动碰撞」的关键。
+   */
   function rally(ai) {
     const st = RTS.state;
-    const pt = rallyPointOf(ai);
-    ai.rallyPoint = pt;
-    let i = 0;
+    if (!ai.rallyPoint || !ai.rallyPoint.x) {
+      ai.rallyPoint = rallyPointOf(ai);
+    }
+    const pt = ai.rallyPoint;
+    const idle = [];
     st.enemy.units.forEach((u) => {
-      if (u.state !== 'idle' && u.state !== 'move') return;
-      const ang = (i / Math.max(1, st.enemy.units.size)) * Math.PI * 2;
-      const ox = pt.x + Math.cos(ang) * Math.min(90, 20 + i * 1.5);
-      const oy = pt.y + Math.sin(ang) * Math.min(90, 20 + i * 1.5);
-      RTS.Unit.orderAttackMove(u, ox, oy);
-      i++;
+      if (u.state === 'idle' || u.state === 'move') idle.push(u);
     });
+    if (idle.length === 0) return;
+
+    const slots = rallySlots(idle.length);
+    for (let i = 0; i < idle.length; i++) {
+      const u = idle[i];
+      const slot = slots[i];
+      const sx = pt.x + slot.x;
+      const sy = pt.y + slot.y;
+      // 已在编队位置附近则保持静止，避免反复寻路
+      if (Math.hypot(u.x - sx, u.y - sy) < C().formationSpacing * 0.9) continue;
+      RTS.Unit.orderAttackMove(u, sx, sy);
+    }
+    ai.rallyTimer = 2.5;
   }
 
-  /** 发起进攻波：驱使部队向玩家基地方向推进 */
+  /** 发起进攻波：多路（上/中/下）推进，避免一坨扎堆冲锋 */
   function launchAttack(ai, fullCommit) {
     const st = RTS.state;
     const enemy = st.enemy;
     const target = st.player.base;
     const strikeCap = fullCommit ? enemy.units.size : Math.floor(enemy.units.size * 0.75) || 1;
+    const laneCount = strikeCap >= 30 ? 3 : strikeCap >= 15 ? 2 : 1;
+
     let ordered = 0;
     enemy.units.forEach((u) => {
       if (ordered >= strikeCap) return;
       if (u.state === 'idle' || u.state === 'move' || u.state === 'attackMove' || u.state === 'attack') {
-        const ang = (ordered / Math.max(1, strikeCap)) * Math.PI * 2;
-        const spread = Math.min(140, 40 + strikeCap * 2);
-        const ox = target.x + Math.cos(ang) * spread;
-        const oy = target.y + Math.sin(ang) * spread;
+        const lane = ordered % laneCount;
+        const laneY = laneCount === 1 ? 0 : (lane - (laneCount - 1) / 2) * 220;
+        const ox = target.x + (Math.random() - 0.5) * 70;
+        const oy = target.y + laneY + (Math.random() - 0.5) * 70;
         RTS.Unit.orderAttackMove(u, ox, oy);
         ordered++;
       }
@@ -231,23 +268,28 @@ RTS.AI = (function () {
     return ordered > 0;
   }
 
-  /** 回防：命令空闲单位迎击基地附近的入侵者 */
+  /** 回防：命令空闲单位迎击基地附近的入侵者（节流执行，位置稳定） */
   function defend(ai) {
     const st = RTS.state;
     const enemy = st.enemy;
     const base = enemy.base;
     const radius = C().aiDefenseRadius;
+    let i = 0;
+    const slots = rallySlots(enemy.units.size);
     enemy.units.forEach((u) => {
       if (u.state !== 'idle' && u.state !== 'move') return;
+      const slot = slots[i % slots.length];
       if (RTS.Unit.distTo(u, base.x, base.y) > radius * 2) {
         // 远处单位也撤回基地附近
-        RTS.Unit.orderAttackMove(u, base.x + (Math.random() - 0.5) * 160, base.y + (Math.random() - 0.5) * 160);
+        RTS.Unit.orderAttackMove(u, base.x + slot.x * 0.5, base.y + slot.y * 0.5);
+        i++;
         return;
       }
       // 攻击最近入侵者
       let nearest = null;
       let nd = Infinity;
       st.player.units.forEach((p) => {
+        if (p.hp <= 0) return;
         const d = RTS.Unit.distTo(u, p.x, p.y);
         if (d < nd) {
           nd = d;
@@ -255,6 +297,7 @@ RTS.AI = (function () {
         }
       });
       if (nearest) RTS.Unit.orderAttack(u, { kind: 'unit', ref: nearest });
+      i++;
     });
   }
 
@@ -262,16 +305,57 @@ RTS.AI = (function () {
   function retreat(ai) {
     const st = RTS.state;
     const base = st.enemy.base;
-    enemyRetreatAll(base);
-  }
-
-  function enemyRetreatAll(base) {
-    const st = RTS.state;
+    let i = 0;
+    const slots = rallySlots(st.enemy.units.size);
     st.enemy.units.forEach((u) => {
       if (u.state === 'idle' || u.state === 'move' || u.state === 'attackMove') {
-        RTS.Unit.orderMove(u, base.x + (Math.random() - 0.5) * 200, base.y + (Math.random() - 0.5) * 200);
+        const slot = slots[i % slots.length];
+        RTS.Unit.orderMove(u, base.x + slot.x * 0.6, base.y + slot.y * 0.6);
+        i++;
       }
     });
+  }
+
+  /** 分派少量部队去占领未控制的资源点（地图控制，而非一波流） */
+  function captureNodes(ai) {
+    const st = RTS.state;
+    if (!st.resources) return;
+    const nodes = st.resources.nodes.filter((n) => n.owner !== 'enemy');
+    if (nodes.length === 0) return;
+    nodes.sort((a, b) => RTS.Unit.distTo(a, st.enemy.base.x, st.enemy.base.y) - RTS.Unit.distTo(b, st.enemy.base.x, st.enemy.base.y));
+
+    let squad = 0;
+    const target = nodes[0];
+    st.enemy.units.forEach((u) => {
+      if (squad >= 4) return;
+      if (u.state !== 'idle') return;
+      // 已在节点附近驻守的单位不再重复下令
+      if (Math.hypot(u.x - target.x, u.y - target.y) < target.radius * 0.7) return;
+      const off = rallySlots(4)[squad];
+      RTS.Unit.orderAttackMove(u, target.x + off.x * 0.5, target.y + off.y * 0.5);
+      squad++;
+    });
+  }
+
+  /** 用木/石进行科技升级（城防优先，其次攻击/护甲） */
+  function aiUpgrade(ai) {
+    const st = RTS.state;
+    const enemy = st.enemy;
+    // 城防：石料足够且未满级则升级
+    if (RTS.Resources.canUpgrade(enemy, 'defense').ok) {
+      RTS.Resources.upgrade(enemy, 'defense');
+      return;
+    }
+    // 攻击与护甲交替升级
+    const a = RTS.Resources.canUpgrade(enemy, 'attack');
+    const m = RTS.Resources.canUpgrade(enemy, 'armor');
+    const aLvl = RTS.Resources.levelOf(enemy, 'attack');
+    const mLvl = RTS.Resources.levelOf(enemy, 'armor');
+    if (a.ok && (aLvl <= mLvl || !m.ok)) {
+      RTS.Resources.upgrade(enemy, 'attack');
+    } else if (m.ok) {
+      RTS.Resources.upgrade(enemy, 'armor');
+    }
   }
 
   // ---------------------------------------------------------------- DeepSeek
@@ -372,7 +456,6 @@ RTS.AI = (function () {
 
     // 1) 高层态势决策（每 0.5s 评估一次，避免高频抖动）
     ai.defenseTimer -= dt;
-    ai.phaseChanged = false;
     if (ai.defenseTimer <= 0) {
       ai.defenseTimer = 0.5;
       const next = evaluatePhase(ai);
@@ -386,8 +469,32 @@ RTS.AI = (function () {
       if (shouldProduce(ai, ai.phase)) produce(ai);
     }
 
+    // 2.1) 科技升级（用木/石，间隔评估）
+    ai.upgradeTimer -= dt;
+    if (ai.upgradeTimer <= 0) {
+      ai.upgradeTimer = 4;
+      aiUpgrade(ai);
+    }
+
+    // 2.2) 资源占领（发育/试探阶段派小队；集结阶段专注收拢，避免与 rally 抢单位造成来回跑）
+    if (ai.phase === PHASE.build || ai.phase === PHASE.harass) {
+      ai.nodeTimer -= dt;
+      if (ai.nodeTimer <= 0) {
+        ai.nodeTimer = 4;
+        captureNodes(ai);
+      }
+    }
+
+    // 低层指令节流计时
+    ai.rallyTimer -= dt;
+    ai.commandTimer -= dt;
+
     // 3) 按态势执行低层指令
     executePhase(ai, enemy, time, Cfg);
+
+    // 3.1) 清空“相位切换”标记（在 executePhase 消费之后，避免吞掉
+    //       DeepSeek 异步 attackNow 设置的 phaseChanged）
+    ai.phaseChanged = false;
 
     // 4) 总攻波计时衰减
     if (ai.phase === PHASE.assault) {
@@ -402,7 +509,7 @@ RTS.AI = (function () {
         break;
 
       case PHASE.rally:
-        rally(ai);
+        if (ai.phaseChanged || ai.rallyTimer <= 0) rally(ai);
         break;
 
       case PHASE.harass:
@@ -423,11 +530,17 @@ RTS.AI = (function () {
         break;
 
       case PHASE.defend:
-        defend(ai);
+        if (ai.phaseChanged || ai.commandTimer <= 0) {
+          defend(ai);
+          ai.commandTimer = 1.5;
+        }
         break;
 
       case PHASE.retreat:
-        retreat(ai);
+        if (ai.phaseChanged || ai.commandTimer <= 0) {
+          retreat(ai);
+          ai.commandTimer = 1.5;
+        }
         break;
     }
   }

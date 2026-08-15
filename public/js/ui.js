@@ -13,6 +13,10 @@ RTS.UI = (function () {
   function init() {
     el.gold = document.getElementById('hud-gold');
     el.goldRate = document.getElementById('hud-gold-rate');
+    el.wood = document.getElementById('hud-wood');
+    el.woodRate = document.getElementById('hud-wood-rate');
+    el.stone = document.getElementById('hud-stone');
+    el.stoneRate = document.getElementById('hud-stone-rate');
     el.pop = document.getElementById('hud-pop');
     el.time = document.getElementById('hud-time');
     el.aiSource = document.getElementById('hud-ai-source');
@@ -27,10 +31,17 @@ RTS.UI = (function () {
     el.overlayRestart = document.getElementById('overlay-restart');
     el.debugPanel = document.getElementById('debug-panel');
     el.prodButtons = Array.from(document.querySelectorAll('.prod-btn'));
+    el.upgButtons = Array.from(document.querySelectorAll('.upg-btn'));
 
     el.prodButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
         orderProduction(btn.dataset.type);
+      });
+    });
+
+    el.upgButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        orderUpgrade(btn.dataset.track);
       });
     });
 
@@ -52,6 +63,24 @@ RTS.UI = (function () {
     if (!res.ok) {
       if (res.reason === 'gold') toast('军费不足', 'warn');
       else if (res.reason === 'pop') toast('部队已满', 'error');
+    }
+  }
+
+  function orderUpgrade(track) {
+    const st = RTS.state;
+    if (st.phase !== 'running') return;
+    const check = RTS.Resources.canUpgrade(st.player, track);
+    if (check.reason === 'max') {
+      toast('已达最高等级', 'info');
+      return;
+    }
+    if (!check.ok) {
+      const resName = RTS.CONFIG.upgrades[track].resource === 'wood' ? '木材' : '石料';
+      toast(resName + '不足', 'warn');
+      return;
+    }
+    if (RTS.Resources.upgrade(st.player, track)) {
+      toast(RTS.CONFIG.upgrades[track].name + '升级完成', 'info');
     }
   }
 
@@ -78,6 +107,10 @@ RTS.UI = (function () {
 
     el.gold.textContent = Math.floor(player.gold);
     el.goldRate.textContent = `(+${player.goldRate.toFixed(1)}/s)`;
+    el.wood.textContent = Math.floor(player.wood);
+    el.woodRate.textContent = `(+${player.woodRate.toFixed(1)}/s)`;
+    el.stone.textContent = Math.floor(player.stone);
+    el.stoneRate.textContent = `(+${player.stoneRate.toFixed(1)}/s)`;
     el.pop.textContent = player.units.size;
     el.time.textContent = fmtTime(st.time);
 
@@ -96,7 +129,7 @@ RTS.UI = (function () {
       const type = btn.dataset.type;
       const s = RTS.Unit.typeStats(type);
       const costEl = btn.querySelector('.prod-cost');
-      costEl.textContent = s.cost;
+      costEl.textContent = '🪙' + s.cost;
       const check = RTS.Production.canOrder(player, type);
       btn.classList.toggle('disabled', !check.ok);
 
@@ -108,6 +141,26 @@ RTS.UI = (function () {
       } else {
         bar.style.width = '0%';
       }
+    });
+
+    // 升级按钮状态
+    el.upgButtons.forEach((btn) => {
+      const track = btn.dataset.track;
+      const cfg = RTS.CONFIG.upgrades[track];
+      const lvl = RTS.Resources.levelOf(player, track);
+      const cost = RTS.Resources.upgradeCost(player, track);
+      const levelEl = btn.querySelector('.upg-level');
+      const costEl = btn.querySelector('.upg-cost');
+      levelEl.textContent = `${lvl}/${RTS.CONFIG.upgradeMaxLevel}`;
+      if (cost === null) {
+        costEl.textContent = '已满级';
+        btn.classList.add('maxed');
+      } else {
+        const resIcon = cfg.resource === 'wood' ? '🪵' : '🪨';
+        costEl.textContent = `${resIcon}${cost}`;
+        btn.classList.remove('maxed');
+      }
+      btn.classList.toggle('disabled', !RTS.Resources.canUpgrade(player, track).ok && cost !== null);
     });
 
     // 队列显示
@@ -179,6 +232,9 @@ RTS.UI = (function () {
     if (ai.lastDecision) lines.push(`最近决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);
     if (ai.lastDeepseekError) lines.push(`DeepSeek 状态：${ai.lastDeepseekError}`);
     lines.push(`DeepSeek 调用次数：${ai.deepseekCount}`);
+    lines.push(`玩家资源：🪵${Math.floor(st.player.wood)} 🪨${Math.floor(st.player.stone)}`);
+    const up = st.player.upgrades;
+    lines.push(`玩家升级：攻${up.attack}/护${up.armor}/城防${up.defense}`);
     el.debugPanel.textContent = lines.join('\n');
   }
 

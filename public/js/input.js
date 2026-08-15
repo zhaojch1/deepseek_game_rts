@@ -150,6 +150,8 @@ RTS.Input = (function () {
 
   function onRightClick(wx, wy) {
     const st = RTS.state;
+    // 右键下达移动/攻击指令时，取消待命的攻击移动，避免下次左键误触发
+    state.attackMovePending = false;
     const enemyUnit = hitTestUnit(wx, wy, 'enemy');
     if (enemyUnit) {
       issueAttackUnit(enemyUnit);

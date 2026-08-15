@@ -16,10 +16,15 @@ RTS.Match = (function () {
       owner,
       gold: Cfg.initialGold,
       goldRate: Cfg.baseGoldRate,
+      wood: 0,
+      woodRate: 0,
+      stone: 0,
+      stoneRate: 0,
       populationCap: Cfg.populationCap,
       base,
       productionQueue: [],
       units: new Map(),
+      upgrades: { attack: 0, armor: 0, defense: 0 },
     });
 
     const state = {
@@ -31,8 +36,11 @@ RTS.Match = (function () {
       enemy: mkFaction('enemy', bases.enemy),
       selection: new Set(),
       damageNumbers: [],
+      resources: { nodes: RTS.World.placeResources() },
+      corpses: [],
       ai: RTS.AI.init(),
     };
+    RTS.Projectiles.clear();
     return state;
   }
 
@@ -138,9 +146,14 @@ RTS.Match = (function () {
         RTS.Production.update(STEP);
         RTS.AI.update(STEP);
         RTS.Combat.rebuildHash();
+        RTS.Resources.captureUpdate(STEP);
+        RTS.Resources.incomeUpdate(STEP);
+        RTS.Resources.baseDefenseUpdate(STEP);
         RTS.Match.updateAllUnits(STEP);
+        RTS.Projectiles.update(STEP);
         RTS.Combat.applySeparation();
         RTS.Combat.ageDamageNumbers(STEP);
+        RTS.Combat.ageCorpses(STEP);
         RTS.Match.checkEnd();
       }
       acc -= STEP;

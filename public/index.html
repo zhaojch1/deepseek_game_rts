@@ -12,17 +12,27 @@
   <!-- 顶部 HUD -->
   <div id="hud-top" class="hud-top">
     <div class="hud-group">
-      <span class="hud-icon gold-icon">◈</span>
+      <span class="hud-icon gold-icon">🪙</span>
       <span id="hud-gold" class="hud-value">300</span>
       <span id="hud-gold-rate" class="hud-sub">(+5/s)</span>
     </div>
     <div class="hud-group">
-      <span class="hud-icon pop-icon">☰</span>
+      <span class="hud-icon wood-icon">🪵</span>
+      <span id="hud-wood" class="hud-value">0</span>
+      <span id="hud-wood-rate" class="hud-sub">(+0/s)</span>
+    </div>
+    <div class="hud-group">
+      <span class="hud-icon stone-icon">🪨</span>
+      <span id="hud-stone" class="hud-value">0</span>
+      <span id="hud-stone-rate" class="hud-sub">(+0/s)</span>
+    </div>
+    <div class="hud-group">
+      <span class="hud-icon pop-icon">👥</span>
       <span id="hud-pop" class="hud-value">0</span>
       <span class="hud-sub">/100</span>
     </div>
     <div class="hud-group">
-      <span class="hud-icon time-icon">◷</span>
+      <span class="hud-icon time-icon">⏱️</span>
       <span id="hud-time" class="hud-value">00:00</span>
     </div>
     <div class="hud-group hud-spacer"></div>
@@ -40,35 +50,58 @@
 
   <!-- 底部生产面板 -->
   <div id="production-panel" class="production-panel">
-    <button class="prod-btn" data-type="spear">
+    <button class="prod-btn" data-type="spear" title="长矛兵 · 反骑兵">
       <span class="prod-key">Q</span>
-      <span class="prod-shape spear"></span>
+      <span class="prod-icon">🔱</span>
       <span class="prod-name">长矛兵</span>
-      <span class="prod-cost">60</span>
+      <span class="prod-cost">🪙60</span>
       <div class="prod-progress"><div class="prod-progress-bar"></div></div>
     </button>
-    <button class="prod-btn" data-type="sword">
+    <button class="prod-btn" data-type="sword" title="刀盾兵 · 肉盾">
       <span class="prod-key">W</span>
-      <span class="prod-shape sword"></span>
+      <span class="prod-icon">🛡️</span>
       <span class="prod-name">刀盾兵</span>
-      <span class="prod-cost">70</span>
+      <span class="prod-cost">🪙70</span>
       <div class="prod-progress"><div class="prod-progress-bar"></div></div>
     </button>
-    <button class="prod-btn" data-type="archer">
+    <button class="prod-btn" data-type="archer" title="弓箭手 · 远程">
       <span class="prod-key">E</span>
-      <span class="prod-shape archer"></span>
+      <span class="prod-icon">🏹</span>
       <span class="prod-name">弓箭手</span>
-      <span class="prod-cost">80</span>
+      <span class="prod-cost">🪙80</span>
       <div class="prod-progress"><div class="prod-progress-bar"></div></div>
     </button>
-    <button class="prod-btn" data-type="cavalry">
+    <button class="prod-btn" data-type="cavalry" title="骑兵 · 突击">
       <span class="prod-key">R</span>
-      <span class="prod-shape cavalry"></span>
+      <span class="prod-icon">🐴</span>
       <span class="prod-name">骑兵</span>
-      <span class="prod-cost">120</span>
+      <span class="prod-cost">🪙120</span>
       <div class="prod-progress"><div class="prod-progress-bar"></div></div>
     </button>
     <div id="queue-display" class="queue-display"></div>
+  </div>
+
+  <!-- 科技升级面板 -->
+  <div id="upgrade-panel" class="upgrade-panel">
+    <div class="upgrade-title">⚒️ 科技升级</div>
+    <button class="upg-btn" data-track="attack" title="全体单位攻击力提升">
+      <span class="upg-icon">⚔️</span>
+      <span class="upg-name">军备锻造</span>
+      <span class="upg-level">0/3</span>
+      <span class="upg-cost">🪵120</span>
+    </button>
+    <button class="upg-btn" data-track="armor" title="全体单位护甲减伤">
+      <span class="upg-icon">🛡️</span>
+      <span class="upg-name">铁甲研究</span>
+      <span class="upg-level">0/3</span>
+      <span class="upg-cost">🪵100</span>
+    </button>
+    <button class="upg-btn" data-track="defense" title="城堡箭塔数量与伤害提升">
+      <span class="upg-icon">🏰</span>
+      <span class="upg-name">城防工事</span>
+      <span class="upg-level">0/3</span>
+      <span class="upg-cost">🪨150</span>
+    </button>
   </div>
 
   <!-- 小地图 -->
@@ -90,7 +123,7 @@
 
   <div id="debug-panel" class="debug-panel hidden"></div>
 
-  <!-- 模块加载顺序：config → world → pathfinding → camera → unit → combat → production → ai → input → render → ui → main -->
+  <!-- 模块加载顺序：config → world → pathfinding → camera → unit → combat → production → resources → projectiles → ai → input → render → ui → main -->
   <script src="js/config.js"></script>
   <script src="js/world.js"></script>
   <script src="js/pathfinding.js"></script>
@@ -98,6 +131,8 @@
   <script src="js/unit.js"></script>
   <script src="js/combat.js"></script>
   <script src="js/production.js"></script>
+  <script src="js/resources.js"></script>
+  <script src="js/projectiles.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/input.js"></script>
   <script src="js/render.js"></script>
