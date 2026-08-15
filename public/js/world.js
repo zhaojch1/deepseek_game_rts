@@ -242,6 +242,8 @@ RTS.World = (function () {
   /**
    * v9：哨塔占用地图瓦片（成为不可通行障碍）。
    * 建塔时保存被占用瓦片的原状（tower.tiles），销毁时恢复。
+   * v10.2：兵营复用本逻辑（只依赖 x/y/radius/tiles 通用字段）。
+   * 圆心所在瓦片必定占用（nearestWalkablePx 可能返回非瓦片中心的坐标）。
    */
   function markTowerBlocked(tower) {
     const world = RTS.world;
@@ -257,7 +259,9 @@ RTS.World = (function () {
         if (tx < 0 || ty < 0 || tx >= world.W || ty >= world.H) continue;
         const px = tx * Cfg.tileSize + Cfg.tileSize / 2;
         const py = ty * Cfg.tileSize + Cfg.tileSize / 2;
-        if (Math.hypot(px - tower.x, py - tower.y) <= tower.radius * 0.9) {
+        const inR = Math.hypot(px - tower.x, py - tower.y) <= tower.radius * 0.9;
+        const isCenterTile = tx === cx && ty === cy; // 圆心所在瓦片必定占用
+        if (inR || isCenterTile) {
           const i = yToIdx(tx, ty);
           tower.tiles.push({ tx, ty, walkable: world.walkable[i], terrain: world.terrain[i] });
           world.walkable[i] = 0;

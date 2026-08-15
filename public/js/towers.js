@@ -59,15 +59,16 @@ RTS.Towers = (function () {
     if (!check.ok) return check;
     faction.wood -= C().towerBuildCost.wood;
     faction.stone -= C().towerBuildCost.stone;
-    unit.building = { x: check.x, y: check.y, progress: 0, total: C().towerBuildTime };
+    unit.building = { kind: 'tower', x: check.x, y: check.y, progress: 0, total: C().towerBuildTime };
     RTS.Unit.orderMove(unit, check.x, check.y);
     return { ok: true, reason: null, x: check.x, y: check.y };
   }
 
-  /** 每帧推进正在施工的建筑师（抵达建造点后才开始计时） */
+  /** 每帧推进正在施工的建筑师（kind==='tower'；兵营施工由 RTS.Barracks.updateBuilders 负责） */
   function updateArchitects(dt) {
     RTS.Combat.forEachUnit((u) => {
       if (u.type !== 'architect' || !u.building) return;
+      if (u.building.kind === 'barracks') return; // v10.2：兵营施工不在此处理
       const b = u.building;
       if (Math.hypot(u.x - b.x, u.y - b.y) <= C().towerBuildRadius + 8) {
         b.progress += dt;

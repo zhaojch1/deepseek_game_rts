@@ -15,6 +15,7 @@ RTS.Input = (function () {
     dragStartWorld: { x: 0, y: 0 },
     attackMovePending: false,
     buildPending: false, // v9：选中建筑师后按 B，左键指定哨塔建造位置
+    buildBarracksPending: false, // v10.2：选中建筑师后按 N，左键指定兵营建造位置
     keys: new Set(),
   };
 
@@ -102,6 +103,7 @@ RTS.Input = (function () {
     markOrder(wx, wy, '#6ee7a0');
     const offs = formationOffsets(sel.length);
     sel.forEach((u, i) => {
+      RTS.Unit.clearMicro(u); // v10：玩家手动下令覆盖 AI 微指令
       RTS.Unit.orderMove(u, wx + offs[i].x, wy + offs[i].y);
     });
   }
@@ -112,6 +114,7 @@ RTS.Input = (function () {
     markOrder(wx, wy, '#ff5a5a');
     const offs = formationOffsets(sel.length);
     sel.forEach((u, i) => {
+      RTS.Unit.clearMicro(u); // v10
       RTS.Unit.orderAttackMove(u, wx + offs[i].x, wy + offs[i].y);
     });
   }
@@ -120,6 +123,7 @@ RTS.Input = (function () {
     const sel = selectedUnits();
     if (sel.length === 0) return;
     sel.forEach((u) => {
+      RTS.Unit.clearMicro(u); // v10
       RTS.Unit.orderAttack(u, { kind: 'unit', ref: enemyUnit });
     });
   }
@@ -128,6 +132,7 @@ RTS.Input = (function () {
     const sel = selectedUnits();
     if (sel.length === 0) return;
     sel.forEach((u) => {
+      RTS.Unit.clearMicro(u); // v10
       RTS.Unit.orderAttack(u, { kind: 'base', ref: base });
     });
   }
@@ -150,6 +155,7 @@ RTS.Input = (function () {
     let okCount = 0;
     architects.forEach((u, i) => {
       const p = RTS.World.nearestWalkablePx(wx + offs[i].x, wy + offs[i].y);
+      RTS.Unit.clearMicro(u); // v10：手动建造覆盖 AI 微指令
       const res = RTS.Towers.orderBuild(u, p.x, p.y);
       if (res.ok) okCount++;
     });
@@ -159,6 +165,37 @@ RTS.Input = (function () {
       // 保持 buildPending，方便连续放置多座哨塔
     } else {
       RTS.UI && RTS.UI.toast('此处无法建造（资源不足/位置不可用/数量已达上限）', 'warn');
+    }
+  }
+
+  /** v10.2：向选中建筑师下达「在此建造兵营」指令 */
+  function issueBuildBarracks(wx, wy) {
+    const st = RTS.state;
+    const architects = selectedUnits().filter((u) => u.type === 'architect');
+    if (architects.length === 0) {
+      RTS.UI && RTS.UI.toast('需要先选中建筑师（👷）才能建造兵营', 'warn');
+      state.buildBarracksPending = false;
+      return;
+    }
+    const Cfg = C();
+    if (st.player.wood < Cfg.barracksBuildCost.wood || st.player.stone < Cfg.barracksBuildCost.stone) {
+      RTS.UI && RTS.UI.toast(`建造兵营需要 🪵${Cfg.barracksBuildCost.wood} 🪨${Cfg.barracksBuildCost.stone}`, 'warn');
+      return;
+    }
+    const offs = formationOffsets(architects.length);
+    let okCount = 0;
+    architects.forEach((u, i) => {
+      const p = RTS.World.nearestWalkablePx(wx + offs[i].x, wy + offs[i].y);
+      RTS.Unit.clearMicro(u);
+      const res = RTS.Barracks.orderBuild(u, p.x, p.y);
+      if (res.ok) okCount++;
+    });
+    if (okCount > 0) {
+      markOrder(wx, wy, '#a78bfa');
+      RTS.UI && RTS.UI.toast(`建筑师开始施工（🪵${Cfg.barracksBuildCost.wood} 🪨${Cfg.barracksBuildCost.stone}），再点可继续放置，Esc 结束`, 'info');
+      // 保持 buildBarracksPending，方便连续放置多座兵营
+    } else {
+      RTS.UI && RTS.UI.toast('此处无法建造兵营（资源不足/位置不可用/数量已达上限）', 'warn');
     }
   }
 
@@ -177,6 +214,10 @@ RTS.Input = (function () {
     if (playerAIControlled()) return; // AI 接管中：屏蔽选择
     if (state.buildPending) {
       issueBuild(wx, wy);
+      return;
+    }
+    if (state.buildBarracksPending) {
+      issueBuildBarracks(wx, wy);
       return;
     }
     if (state.attackMovePending) {
@@ -227,6 +268,7 @@ RTS.Input = (function () {
     // 右键下达移动/攻击指令时，取消待命的攻击移动/建造模式，避免下次左键误触发
     state.attackMovePending = false;
     state.buildPending = false;
+    state.buildBarracksPending = false;
 
     // 已选中己方城堡：右键设置单位出生集结点
     if (st.selectedBase === 'player') {
@@ -341,9 +383,24 @@ RTS.Input = (function () {
             RTS.UI && RTS.UI.toast('需要先选中建筑师（👷）才能建造哨塔', 'warn');
           } else {
             state.buildPending = !state.buildPending;
+            state.buildBarracksPending = false;
             state.attackMovePending = false;
             if (state.buildPending) {
-              RTS.UI && RTS.UI.toast('建造模式：左键指定哨塔位置，Esc 结束', 'info');
+              RTS.UI && RTS.UI.toast('建造哨塔模式：左键指定位置，Esc 结束', 'info');
+            }
+          }
+        }
+      } else if (upper === C().buildBarracksKey) {
+        // v10.2：选中建筑师后按 N 进入「建造兵营」模式（再按一次取消）
+        if (!playerAIControlled()) {
+          if (!hasSelectedArchitect()) {
+            RTS.UI && RTS.UI.toast('需要先选中建筑师（👷）才能建造兵营', 'warn');
+          } else {
+            state.buildBarracksPending = !state.buildBarracksPending;
+            state.buildPending = false;
+            state.attackMovePending = false;
+            if (state.buildBarracksPending) {
+              RTS.UI && RTS.UI.toast('建造兵营模式：左键指定位置，Esc 结束', 'info');
             }
           }
         }
@@ -351,12 +408,14 @@ RTS.Input = (function () {
         if (!playerAIControlled()) {
           state.attackMovePending = true;
           state.buildPending = false;
+          state.buildBarracksPending = false;
         }
       } else if (key === 'Escape') {
         st.selection.clear();
         st.selectedBase = null;
         state.attackMovePending = false;
         state.buildPending = false;
+        state.buildBarracksPending = false;
       } else if (key === ' ') {
         e.preventDefault();
         RTS.Camera.setCenter(st.player.base.x, st.player.base.y);

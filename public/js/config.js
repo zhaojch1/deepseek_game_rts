@@ -120,14 +120,48 @@ RTS.CONFIG = {
   towerBuildRadius: 26, // 建筑师判定「到达建造点」的距离（px）
   maxTowersPerFaction: 8, // 每阵营哨塔数量上限（防止无限铺塔）
 
+  // ---------------------------------------------------------------- 兵营（v10.2：建筑师建造的第二出兵点）
+  barracksBuildCost: { wood: 150, stone: 100 }, // 建造兵营消耗的木材/石料
+  barracksBuildTime: 5, // 建造时长（秒）
+  barracksMaxHp: 1500, // 兵营耐久（重要生产建筑，耐久高）
+  barracksRadius: 30, // 兵营占位半径（px，同时是障碍范围）
+  barracksDamageMultiplier: 0.85, // 兵营为坚固建筑，受到武器伤害的减免倍率
+  barracksBuildRadius: 26, // 建筑师判定「到达建造点」的距离（px）
+  maxBarracksPerFaction: 3, // 每阵营兵营数量上限
+  baseQueueBarracksThreshold: 3, // 基地生产队列超过该数量时，多余的订单从兵营出生
+  barracksSpawnOffset: 42, // 单位从兵营出生的偏移（兵营半径 + 该值，px）
+
   // ---------------------------------------------------------------- 投射物
   arrowSpeed: 540, // 弓箭飞行速度 px/s
   towerArrowSpeed: 470, // 塔箭飞行速度 px/s
   corpseDuration: 0.8, // 死亡动画时长（秒）
 
   // ---------------------------------------------------------------- AI
-  aiDecisionIntervalMin: 3, // DeepSeek 调用间隔下限（秒，v4 连续刷新，随时接管）
-  aiDecisionIntervalMax: 6, // 上限（秒）
+  // v10：四级指挥链（主将/进攻副将/防守副将/军需官，全部为大模型）
+  aiDecisionIntervalMin: 3, // 主将调用间隔下限（秒，v4 连续刷新，随时接管）
+  aiDecisionIntervalMax: 6, // 主将调用间隔上限（秒）
+  aiOfficerIntervalMin: 4, // 副将（进攻/防守）调用间隔下限（秒，v10）
+  aiOfficerIntervalMax: 7, // 副将调用间隔上限（秒，v10）
+  aiQuartermasterIntervalMin: 5, // 军需官调用间隔下限（秒，v10）
+  aiQuartermasterIntervalMax: 9, // 军需官调用间隔上限（秒，v10）
+  aiOfficerRosterCap: 36, // 副将请求中携带的可指挥单位清单上限（控 token）
+  aiMaxOrdersPerOfficer: 8, // 每个副将单次最多下达的命令条数
+  aiMaxUnitsPerOrder: 10, // 单条 group 命令最多指挥的单位数
+  aiQmPlanCap: 6, // 军需官生产计划最多条目数
+  aiQmTowerCap: 4, // 军需官单次最多指定哨塔选址数
+  aiMicroOrderLifetime: 25, // 微指令默认有效时长（秒，v10：逐单位指令的驻留时间）
+  aiOfficerOrderLifetime: 8, // 副将命令集的有效期（秒，超期不再重复尝试分配）
+  aiMicroHoldRadius: 60, // 微指令「驻守/抢占」的归位半径（px，v10）
+  aiKiteDistanceMul: 0.7, // 风筝：远程单位后退的触发距离（射程比例，v10）
+  // v10.1：筑垒节奏（确定性，不依赖 fortify 态势）
+  aiFortifyRhythm: 6, // 筑垒节奏检查间隔（秒）：按需产建筑师 + 派闲置建筑师建塔
+  aiArchitectMinTime: 90, // 开局多少秒后才允许自动生产建筑师（前期发育不造）
+  aiArchitectTarget: 2, // 保留的建筑师数量目标（超过该数量不再自动补产）
+  // v10.2：兵营节奏（确定性）——经济强且基地队列持续拥堵时，建筑师在基地附近建兵营
+  aiBarracksMinGold: 800, // 当前金币富余阈值（备选条件）
+  aiBarracksMinGoldRate: 45, // 金币产生速率阈值（含金矿）：高于该值视为经济强
+  aiBarracksCongestionTime: 10, // 基地队列连续拥堵（≥baseQueueBarracksThreshold 个）达到该秒数才建兵营
+  aiBarracksTarget: 1, // 自动建造的兵营数量目标
   aiRequestTimeoutMs: 20000, // 前端参考值；实际超时由服务端 AI_TIMEOUT_MS 决定（默认 20s）
   // 规则 AI 参数
   aiBaseAggression: 45,
@@ -154,6 +188,7 @@ RTS.CONFIG = {
   // ---------------------------------------------------------------- 快捷键
   attackMoveKey: 'A',
   buildTowerKey: 'B', // v9：选中建筑师后按 B + 左键，在目标位置建造防御哨塔
+  buildBarracksKey: 'N', // v10.2：选中建筑师后按 N + 左键，在目标位置建造兵营
   spaceCenterKey: 'Space',
 
   // ---------------------------------------------------------------- 相机

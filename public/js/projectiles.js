@@ -107,6 +107,8 @@ RTS.Projectiles = (function () {
           RTS.Combat.hitBase(p.damage, target.ref, RTS.Resources.siegeMul(p.owner));
         } else if (target.kind === 'tower') {
           RTS.Combat.hitTower(p.damage, target.ref);
+        } else if (target.kind === 'barracks') {
+          RTS.Combat.hitBarracks(p.damage, target.ref); // v10.2
         }
         list.splice(i, 1);
         continue;

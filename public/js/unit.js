@@ -54,7 +54,25 @@ RTS.Unit = (function () {
       animPhase: Math.random() * Math.PI * 2, // 行走动画相位
       attackAnim: 0, // 攻击挥击/拉弓后摇计时
       aimAngle: 0, // 远程单位瞄准目标的上仰/下俯角（弧度）
+
+      // v10：微指令（逐单位战术指令）——{ kind, x, y, radius, nodeId, waypoints, wpIndex,
+      //      until, source }。有微指令的单位被 AI 标记为「已占用」，
+      //     普通态势执行器不得再对其下令（防止来回拉扯）。
+      microOrder: null,
     };
+  }
+
+  /** v10：清除单位的微指令（玩家手动下令 / 指令超期时调用） */
+  function clearMicro(unit) {
+    unit.microOrder = null;
+  }
+
+  /** v10：单位当前是否有未过期的微指令 */
+  function microActive(unit) {
+    const m = unit.microOrder;
+    if (!m) return false;
+    if (m.until != null && RTS.state && RTS.state.time > m.until) return false;
+    return true;
   }
 
   /** 目标是否仍存活 */
@@ -63,6 +81,7 @@ RTS.Unit = (function () {
     if (target.kind === 'unit') return target.ref.hp > 0;
     if (target.kind === 'base') return target.ref.hp > 0;
     if (target.kind === 'tower') return target.ref.hp > 0;
+    if (target.kind === 'barracks') return target.ref.hp > 0; // v10.2
     return false;
   }
 
@@ -188,11 +207,37 @@ RTS.Unit = (function () {
     return false;
   }
 
+  /** v10：风筝后退——远程单位背对近战目标移动（保持距离，边退边射） */
+  function kiteAway(unit, target, dt) {
+    const dx = unit.x - target.ref.x;
+    const dy = unit.y - target.ref.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const step = unit.speed * 0.55 * dt;
+    const nx = unit.x + (dx / d) * step;
+    const ny = unit.y + (dy / d) * step;
+    if (RTS.World.isWalkablePx(nx, ny)) {
+      unit.x = nx;
+      unit.y = ny;
+    }
+    // 后退时仍保持面向目标
+    unit.facingX = target.ref.x >= unit.x ? 1 : -1;
+  }
+
   /** 攻击：在射程内则进入前摇/攻击循环 */
   function engage(unit, target, dt) {
     const d = distTo(unit, target.ref.x, target.ref.y);
     const reach = unit.range + targetRadius(target);
     if (d <= reach) {
+      // v10：风筝（kite）微指令——远程单位面对近战贴脸时后退保持距离，边退边射
+      if (
+        unit.ranged &&
+        unit.microOrder && unit.microOrder.kind === 'kite' &&
+        target.kind === 'unit' && target.ref.type &&
+        !(RTS.Units.get(target.ref.type) || {}).ranged &&
+        d < unit.range * RTS.CONFIG.aiKiteDistanceMul
+      ) {
+        kiteAway(unit, target, dt);
+      }
       // 面向目标
       unit.facingX = target.ref.x >= unit.x ? 1 : -1;
       // 远程单位：记录朝目标的上仰/下俯角，用于渲染瞄准
@@ -230,6 +275,11 @@ RTS.Unit = (function () {
       if (unit.flashTimer > 0) unit.flashTimer -= dt;
       unit.animPhase += dt * 0.9; // 施工敲打动画
       return;
+    }
+
+    // v10：微指令超期自动失效（占用标记解除，恢复常规行动）
+    if (unit.microOrder && unit.microOrder.until != null && RTS.state && RTS.state.time > unit.microOrder.until) {
+      unit.microOrder = null;
     }
 
     if (unit.attackCooldown > 0) unit.attackCooldown = Math.max(0, unit.attackCooldown - dt);
@@ -322,6 +372,21 @@ RTS.Unit = (function () {
       }
       case 'idle':
       default: {
+        // v10：巡逻微指令——按路点循环移动（途中自动索敌），到达当前路点后推进到下一个
+        if (unit.microOrder && unit.microOrder.kind === 'patrol' && unit.microOrder.waypoints && unit.microOrder.waypoints.length > 0) {
+          const wp = unit.microOrder.waypoints;
+          let idx = unit.microOrder.wpIndex || 0;
+          if (Math.hypot(unit.x - wp[idx].x, unit.y - wp[idx].y) < RTS.CONFIG.arriveThreshold * 2) {
+            idx = (idx + 1) % wp.length;
+            unit.microOrder.wpIndex = idx;
+          }
+          const next = wp[idx];
+          if (!unit.orderTarget || Math.hypot(unit.orderTarget.x - next.x, unit.orderTarget.y - next.y) > RTS.CONFIG.repathTargetDelta) {
+            RTS.Unit.orderAttackMove(unit, next.x, next.y);
+          }
+          break;
+        }
+
         // 驻守反击：在驻守点附近自动索敌，追出一定范围后归位
         const holdR = Math.max(RTS.CONFIG.acquireRadius, 220);
         const acq = RTS.Combat.acquire(unit, holdR);
@@ -332,12 +397,19 @@ RTS.Unit = (function () {
           unit.pathIndex = 0;
           unit.pathGoalX = null;
           unit.pathGoalY = null;
-        } else if (Math.hypot(unit.x - unit.holdX, unit.y - unit.holdY) > 20) {
-          // 远离驻守点：归位（仅当未被攻击）
-          unit.orderTarget = { x: unit.holdX, y: unit.holdY };
-          moveAlongPath(unit, dt);
-          if (distTo(unit, unit.holdX, unit.holdY) < RTS.CONFIG.arriveThreshold) {
-            unit.orderTarget = null;
+        } else {
+          // v10：微指令驻守（抢占资源/驻守点位）时用微指令半径作为归位阈值，
+          // 保证单位守在节点/点位附近而不乱跑
+          const mo = unit.microOrder;
+          const isHoldOrder = mo && (mo.kind === 'capture' || mo.kind === 'hold' || mo.kind === 'defend' || mo.kind === 'intercept');
+          const returnR = isHoldOrder ? (mo.radius || RTS.CONFIG.aiMicroHoldRadius) : 20;
+          if (Math.hypot(unit.x - unit.holdX, unit.y - unit.holdY) > returnR) {
+            // 远离驻守点：归位（仅当未被攻击）
+            unit.orderTarget = { x: unit.holdX, y: unit.holdY };
+            moveAlongPath(unit, dt);
+            if (distTo(unit, unit.holdX, unit.holdY) < RTS.CONFIG.arriveThreshold) {
+              unit.orderTarget = null;
+            }
           }
         }
         break;
@@ -410,5 +482,7 @@ RTS.Unit = (function () {
     typeStats,
     targetAlive,
     distTo,
+    clearMicro,
+    microActive,
   };
 })();

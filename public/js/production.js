@@ -29,6 +29,20 @@ RTS.Production = (function () {
     return { ok: true };
   }
 
+  /**
+   * v10.2：决定新订单的出生点——
+   * 基地生产队列超过 baseQueueBarracksThreshold 个时，多余的订单从兵营出生
+   * （分摊基地训练压力；无可用兵营时全部从基地出生）。
+   */
+  function decideOrigin(faction) {
+    const Cfg = C();
+    if (faction.productionQueue.length >= Cfg.baseQueueBarracksThreshold) {
+      const barracks = RTS.Barracks ? RTS.Barracks.ofOwner(faction.owner, faction.base.x, faction.base.y) : [];
+      if (barracks.length > 0) return { kind: 'barracks', id: barracks[0].id };
+    }
+    return { kind: 'base' };
+  }
+
   function order(faction, type) {
     const s = RTS.Unit.typeStats(type);
     const check = canOrder(faction, type);
@@ -41,6 +55,7 @@ RTS.Production = (function () {
       totalTime: s.trainTime,
       elapsed: 0,
       status: 'queued',
+      origin: decideOrigin(faction), // v10.2：'base' | {kind:'barracks', id}
     });
     return { ok: true, reason: null };
   }
@@ -56,20 +71,35 @@ RTS.Production = (function () {
     return refund;
   }
 
-  function spawnUnit(faction, type) {
+  function spawnUnit(faction, type, origin) {
     const base = faction.base;
     const Cfg = C();
-    // 出生点：城堡城门（朝敌方一侧的固定位置），不再随机散布
-    const dirX = base.owner === 'player' ? 1 : -1;
-    let x = base.x + dirX * (Cfg.baseRadius + Cfg.spawnGateDist);
-    let y = base.y + Cfg.baseRadius * 0.55;
-    // 城门被占用时向两侧错开，保证可通行且不重叠
+    // v10.2：出生点选择——兵营（若该订单指定且兵营仍存活）或基地城门
+    let x;
+    let y;
+    const originBarracks = origin && origin.kind === 'barracks' && RTS.Barracks
+      ? RTS.Barracks.list().find((b) => b.id === origin.id && b.owner === faction.owner && b.hp > 0)
+      : null;
+    if (originBarracks) {
+      const sp = RTS.Barracks.spawnPoint(originBarracks);
+      x = sp.x;
+      y = sp.y;
+    } else {
+      // 基地城门（朝敌方一侧的固定位置），不再随机散布
+      const dirX = base.owner === 'player' ? 1 : -1;
+      x = base.x + dirX * (Cfg.baseRadius + Cfg.spawnGateDist);
+      y = base.y + Cfg.baseRadius * 0.55;
+    }
+    // 出生点被占用时向两侧错开，保证可通行且不重叠
     if (!RTS.World.isWalkablePx(x, y)) {
+      const anchorX = originBarracks ? originBarracks.x : base.x;
+      const anchorY = originBarracks ? originBarracks.y : base.y;
+      const dirX = faction.owner === 'player' ? 1 : -1;
       for (let i = 1; i <= 6; i++) {
         const alt = [
-          { x, y: base.y - i * 14 },
-          { x, y: base.y + i * 14 },
-          { x: base.x + dirX * (Cfg.baseRadius + Cfg.spawnGateDist + i * 12), y },
+          { x, y: anchorY - i * 14 },
+          { x, y: anchorY + i * 14 },
+          { x: anchorX + dirX * (Cfg.baseRadius + Cfg.spawnGateDist + i * 12), y },
         ];
         const ok = alt.find((p) => RTS.World.isWalkablePx(p.x, p.y));
         if (ok) {
@@ -102,7 +132,7 @@ RTS.Production = (function () {
     item.elapsed += dt;
     if (item.elapsed >= item.totalTime) {
       q.shift();
-      spawnUnit(faction, item.type);
+      spawnUnit(faction, item.type, item.origin);
       // v7.1：训练完成属普通消息，不再弹 toast
     }
   }
@@ -113,5 +143,5 @@ RTS.Production = (function () {
     updateFaction(st.enemy, st.time, dt);
   }
 
-  return { update, order, cancel, canOrder, population, usedPop, currentGoldRate };
+  return { update, updateFaction, order, cancel, canOrder, population, usedPop, currentGoldRate };
 })();

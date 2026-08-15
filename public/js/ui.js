@@ -364,7 +364,8 @@ RTS.UI = (function () {
     // v9：选中建筑师时提示建造操作
     if (counts.architect > 0) {
       const Cfg = RTS.CONFIG;
-      detail += `\n👷 建筑师×${counts.architect}：按 B + 左键在指定位置建造防御哨塔（🪵${Cfg.towerBuildCost.wood} 🪨${Cfg.towerBuildCost.stone}）`;
+      detail += `\n👷 建筑师×${counts.architect}：按 B + 左键建造防御哨塔（🪵${Cfg.towerBuildCost.wood} 🪨${Cfg.towerBuildCost.stone}）` +
+        `，按 N + 左键建造兵营（🪵${Cfg.barracksBuildCost.wood} 🪨${Cfg.barracksBuildCost.stone}）`;
     }
     el.selectionDetail.textContent = detail;
   }
@@ -393,7 +394,28 @@ RTS.UI = (function () {
       const sq = ai.strategy.squad;
       lines.push(`敌方分队：${RTS.Units.get(sq.type).name} → ${sq.task}${sq.lane ? ' (' + sq.lane + ')' : ''}`);
     }
-    if (ai.lastDecision) lines.push(`敌方最近决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);
+    // v10：指挥链状态
+    lines.push(`[主将] 指令·攻：${(ai.strategy.offenseDirective || '—').slice(0, 24)}`);
+    lines.push(`[主将] 指令·守：${(ai.strategy.defenseDirective || '—').slice(0, 24)}`);
+    lines.push(`[主将] 指令·经：${(ai.strategy.economyDirective || '—').slice(0, 24)}`);
+    lines.push(`[进攻副将] ${ai.offenseActive ? '已接管' : '未启动'} 命令${ai.offenseOrders.length}条` +
+      (ai.offenseError ? ` 错误:${ai.offenseError}` : '') + ` 调用${ai.offenseCount}次`);
+    lines.push(`[防守副将] ${ai.defenseActive ? '已接管' : '未启动'} 命令${ai.defenseOrders.length}条` +
+      (ai.defenseError ? ` 错误:${ai.defenseError}` : '') + ` 调用${ai.defenseCount}次`);
+    lines.push(`[军需官] ${ai.qmActive ? '已接管' : '未启动'}` +
+      (ai.qmError ? ` 错误:${ai.qmError}` : '') + ` 调用${ai.qmCount}次`);
+    if (ai.qm && ai.qm.plan && ai.qm.plan.length > 0) {
+      lines.push(`[军需官] 生产计划：${ai.qm.plan.map((p) => (RTS.Units.get(p.type) ? RTS.Units.get(p.type).name : p.type) + '×' + p.count).join('、')}`);
+    }
+    if (ai.qm && ai.qm.upgrade) lines.push(`[军需官] 升级：${(RTS.CONFIG.upgrades[ai.qm.upgrade] || {}).name || ai.qm.upgrade}`);
+    if (ai.qm && ai.qm.towers && ai.qm.towers.length > 0) {
+      lines.push(`[军需官] 筑垒：${ai.qm.towers.slice(0, 3).map((t) => t.spot).join(',')}`);
+    }
+    // v10：微指令占用统计
+    let microCount = 0;
+    st.enemy.units.forEach((u) => { if (RTS.Unit.microActive(u)) microCount++; });
+    lines.push(`敌方微指令占用：${microCount}/${st.enemy.units.size} 单位`);
+    if (ai.lastDecision) lines.push(`敌方最近主将决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);
     if (ai.lastDeepseekError) lines.push(`敌方 LLM 状态：${ai.lastDeepseekError}`);
     lines.push(`敌方 LLM 调用次数：${ai.deepseekCount}`);
     lines.push(`玩家资源：🪵${Math.floor(st.player.wood)} 🪨${Math.floor(st.player.stone)}`);

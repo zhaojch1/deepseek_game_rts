@@ -21,7 +21,7 @@ const files = [
   'public/js/maps/valley_river.js', 'public/js/maps/wide_river.js', 'public/js/maps/grand_basin.js',
   'public/js/world.js', 'public/js/pathfinding.js', 'public/js/camera.js',
   'public/js/unit.js', 'public/js/combat.js', 'public/js/production.js',
-  'public/js/resources.js', 'public/js/projectiles.js', 'public/js/towers.js', 'public/js/ai.js',
+  'public/js/resources.js', 'public/js/projectiles.js', 'public/js/towers.js', 'public/js/barracks.js', 'public/js/ai.js',
 ];
 for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filename: f });
 

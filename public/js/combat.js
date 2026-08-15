@@ -111,6 +111,20 @@ RTS.Combat = (function () {
       }
     }
 
+    // v10.2：敌方兵营（在索敌半径内，视为建筑目标）
+    const barracks = (RTS.state && RTS.state.barracks) || [];
+    for (const b of barracks) {
+      if (b.owner !== enemy || b.hp <= 0) continue;
+      const dx = b.x - unit.x;
+      const dy = b.y - unit.y;
+      const reach = range + b.radius;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= reach * reach && d2 <= bestDist) {
+        bestDist = d2;
+        best = { kind: 'barracks', ref: b };
+      }
+    }
+
     return best;
   }
 
@@ -158,6 +172,19 @@ RTS.Combat = (function () {
     return dmg;
   }
 
+  /** v10.2：结算一次对兵营的伤害（坚固建筑减免；摧毁后恢复地形） */
+  function hitBarracks(attackValue, barracks) {
+    if (!barracks || barracks.hp <= 0) return 0;
+    const dmg = Math.max(1, Math.floor(attackValue * C().barracksDamageMultiplier));
+    barracks.hp -= dmg;
+    spawnDamageNumber(barracks.x + (Math.random() - 0.5) * 22, barracks.y - barracks.radius * 0.6, dmg, '#ff9a5a');
+    if (barracks.hp <= 0) {
+      barracks.hp = 0;
+      if (RTS.Barracks) RTS.Barracks.destroy(barracks);
+    }
+    return dmg;
+  }
+
   /** 近战/瞬时攻击结算（由单位直接调用） */
   function deliverAttack(unit, target) {
     if (target.kind === 'unit') {
@@ -172,6 +199,11 @@ RTS.Combat = (function () {
       const def = RTS.Units.get(unit.type);
       const baseMul = (def && def.baseMul) || 1;
       hitTower(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref);
+    } else if (target.kind === 'barracks') {
+      // v10.2：攻击兵营（攻城武器 baseMul 同样生效）
+      const def = RTS.Units.get(unit.type);
+      const baseMul = (def && def.baseMul) || 1;
+      hitBarracks(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref);
     }
   }
 
@@ -273,6 +305,7 @@ RTS.Combat = (function () {
     applyUnitDamage,
     hitBase,
     hitTower,
+    hitBarracks,
     kill,
     ageCorpses,
     query,

@@ -429,6 +429,80 @@ RTS.Render = (function () {
     }
   }
 
+  // v10.2：兵营（营房造型 + 血条）
+  function drawBarracks() {
+    const st = RTS.state;
+    if (!st || !st.barracks || st.barracks.length === 0) return;
+    const vp = viewportWorld();
+    const z = RTS.Camera.get().zoom;
+    for (const b of st.barracks) {
+      if (b.x < vp.left - 80 || b.x > vp.right + 80 || b.y < vp.top - 80 || b.y > vp.bottom + 80) continue;
+      const r = b.radius;
+      const color = b.owner === 'player' ? '#4aa8ff' : '#ff5a5a';
+
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      // 底座阴影
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath();
+      ctx.ellipse(0, r * 0.9, r * 1.15, r * 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // 墙体（石质基座）
+      ctx.fillStyle = '#7a6a52';
+      ctx.strokeStyle = '#0c1220';
+      ctx.lineWidth = 2 / z;
+      ctx.beginPath();
+      ctx.roundRect(-r, -r * 0.35, r * 2, r * 0.85, r * 0.18);
+      ctx.fill();
+      ctx.stroke();
+      // 帐篷顶（布质，双色）
+      ctx.fillStyle = b.owner === 'player' ? '#4a7dbf' : '#c04a4a';
+      ctx.beginPath();
+      ctx.moveTo(-r * 1.05, -r * 0.25);
+      ctx.lineTo(0, -r * 1.35);
+      ctx.lineTo(r * 1.05, -r * 0.25);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // 屋脊线
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 1.2 / z;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.4, -r * 0.25);
+      ctx.lineTo(0, -r * 1.05);
+      ctx.lineTo(r * 0.4, -r * 0.25);
+      ctx.stroke();
+      // 大门
+      ctx.fillStyle = '#3a2a1a';
+      ctx.beginPath();
+      ctx.roundRect(-r * 0.32, -r * 0.12, r * 0.64, r * 0.62, r * 0.12);
+      ctx.fill();
+      // 旗帜
+      ctx.strokeStyle = '#e8eef7';
+      ctx.lineWidth = 1.8 / z;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 1.35);
+      ctx.lineTo(0, -r * 1.75);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 1.75);
+      ctx.lineTo(r * 0.55, -r * 1.63);
+      ctx.lineTo(0, -r * 1.51);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // 血条
+      drawBar(b.x, b.y - r - 16, r * 2, b.hp / b.maxHp, b.hp / b.maxHp > 0.5 ? '#6ee7a0' : '#ffb020');
+      // 兵营标记（可与基地/哨塔区分）
+      ctx.font = `${Math.max(10, 11 / z)}px "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffe9a3';
+      ctx.fillText('⚒', b.x, b.y - r - 22);
+    }
+  }
+
   // ---------------------------------------------------------------- 单位绘制
   // 单位的实际绘制由各自定义文件（js/units/*.js 的 draw 函数）负责，这里只做通用包装。
 
@@ -575,9 +649,10 @@ RTS.Render = (function () {
       if (p.x < vp.left - 30 || p.x > vp.right + 30 || p.y < vp.top - 30 || p.y > vp.bottom + 30) continue;
       ctx.save();
       ctx.translate(p.x, p.y);
-      ctx.rotate(p.angle);
 
-      // 尾迹（渐隐）
+      // 尾迹与发射线使用「世界坐标差值」，必须在 rotate 之前绘制，
+      // 否则会被箭的飞行方向角再次旋转，导致尾迹与飞行轨迹错开（√/八 形）。
+      // 尾迹（渐隐，沿世界坐标轨迹）
       if (p.trail && p.trail.length > 1) {
         for (let i = 1; i < p.trail.length; i++) {
           const a = i / p.trail.length;
@@ -590,7 +665,7 @@ RTS.Render = (function () {
         }
       }
 
-      // 塔箭：从角塔射出的短促发射线
+      // 塔箭：从角塔射出的短促发射线（发射点也是世界坐标）
       if (p.kind === 'tower' && p.source) {
         ctx.strokeStyle = 'rgba(255,220,130,0.5)';
         ctx.lineWidth = 1.2;
@@ -599,6 +674,9 @@ RTS.Render = (function () {
         ctx.lineTo(0, 0);
         ctx.stroke();
       }
+
+      // 箭体按飞行方向旋转（局部坐标）
+      ctx.rotate(p.angle);
 
       // 箭杆（塔箭更粗更暗，弓箭细长）
       ctx.strokeStyle = p.kind === 'tower' ? '#3a2a1a' : '#8a6a3a';
@@ -800,6 +878,7 @@ RTS.Render = (function () {
     drawBase(RTS.state.player.base);
     drawBase(RTS.state.enemy.base);
     drawTowers(); // v9：防御哨塔
+    drawBarracks(); // v10.2：兵营
     drawCorpses();
     drawUnits();
     drawProjectiles();
@@ -873,6 +952,14 @@ RTS.Render = (function () {
       for (const t of RTS.state.towers) {
         mctx.fillStyle = t.owner === 'player' ? '#6ec6ff' : '#ff8a8a';
         mctx.fillRect(t.x * sx - 2, t.y * sy - 2, 4, 4);
+      }
+    }
+
+    // v10.2：兵营（比哨塔稍大的方块）
+    if (RTS.state.barracks) {
+      for (const b of RTS.state.barracks) {
+        mctx.fillStyle = b.owner === 'player' ? '#8f7bff' : '#ff8a8a';
+        mctx.fillRect(b.x * sx - 3, b.y * sy - 3, 6, 6);
       }
     }
 
