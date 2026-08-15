@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepSeek Game RTS</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+
+  <!-- 顶部 HUD -->
+  <div id="hud-top" class="hud-top">
+    <div class="hud-group">
+      <span class="hud-icon gold-icon">◈</span>
+      <span id="hud-gold" class="hud-value">300</span>
+      <span id="hud-gold-rate" class="hud-sub">(+5/s)</span>
+    </div>
+    <div class="hud-group">
+      <span class="hud-icon pop-icon">☰</span>
+      <span id="hud-pop" class="hud-value">0</span>
+      <span class="hud-sub">/100</span>
+    </div>
+    <div class="hud-group">
+      <span class="hud-icon time-icon">◷</span>
+      <span id="hud-time" class="hud-value">00:00</span>
+    </div>
+    <div class="hud-group hud-spacer"></div>
+    <div class="hud-group">
+      <span id="hud-ai-source" class="hud-ai-source">AI：规则</span>
+    </div>
+  </div>
+
+  <!-- 选中单位信息 -->
+  <div id="selection-panel" class="selection-panel hidden">
+    <div id="selection-title" class="selection-title">已选 0 单位</div>
+    <div id="selection-detail" class="selection-detail"></div>
+    <div class="selection-hint">右键移动 · A+左键攻击移动 · 右键敌方攻击 · Esc 取消</div>
+  </div>
+
+  <!-- 底部生产面板 -->
+  <div id="production-panel" class="production-panel">
+    <button class="prod-btn" data-type="spear">
+      <span class="prod-key">Q</span>
+      <span class="prod-shape spear"></span>
+      <span class="prod-name">长矛兵</span>
+      <span class="prod-cost">60</span>
+      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
+    </button>
+    <button class="prod-btn" data-type="sword">
+      <span class="prod-key">W</span>
+      <span class="prod-shape sword"></span>
+      <span class="prod-name">刀盾兵</span>
+      <span class="prod-cost">70</span>
+      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
+    </button>
+    <button class="prod-btn" data-type="archer">
+      <span class="prod-key">E</span>
+      <span class="prod-shape archer"></span>
+      <span class="prod-name">弓箭手</span>
+      <span class="prod-cost">80</span>
+      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
+    </button>
+    <button class="prod-btn" data-type="cavalry">
+      <span class="prod-key">R</span>
+      <span class="prod-shape cavalry"></span>
+      <span class="prod-name">骑兵</span>
+      <span class="prod-cost">120</span>
+      <div class="prod-progress"><div class="prod-progress-bar"></div></div>
+    </button>
+    <div id="queue-display" class="queue-display"></div>
+  </div>
+
+  <!-- 小地图 -->
+  <div id="minimap-wrap" class="minimap-wrap">
+    <canvas id="minimap" width="180" height="180"></canvas>
+  </div>
+
+  <!-- 提示 toast -->
+  <div id="toasts" class="toasts"></div>
+
+  <!-- 结束覆盖层 -->
+  <div id="overlay" class="overlay hidden">
+    <div class="overlay-box">
+      <div id="overlay-title" class="overlay-title">胜利</div>
+      <div id="overlay-sub" class="overlay-sub"></div>
+      <button id="overlay-restart" class="overlay-btn">再来一局</button>
+    </div>
+  </div>
+
+  <div id="debug-panel" class="debug-panel hidden"></div>
+
+  <!-- 模块加载顺序：config → world → pathfinding → camera → unit → combat → production → ai → input → render → ui → main -->
+  <script src="js/config.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/pathfinding.js"></script>
+  <script src="js/camera.js"></script>
+  <script src="js/unit.js"></script>
+  <script src="js/combat.js"></script>
+  <script src="js/production.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>

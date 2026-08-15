@@ -1,0 +1,398 @@
+:root {
+  --hud-bg: rgba(12, 16, 24, 0.82);
+  --hud-border: rgba(90, 120, 180, 0.35);
+  --gold: #f2c14e;
+  --player: #4aa8ff;
+  --enemy: #ff5a5a;
+  --text: #e8eef7;
+  --text-dim: #9fb0c8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #070b12;
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#game-canvas {
+  position: fixed;
+  inset: 0;
+  display: block;
+  cursor: crosshair;
+}
+
+/* ---------------------------------------------------------------- 顶部 HUD */
+.hud-top {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 8px 18px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.hud-group {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.hud-spacer {
+  flex: 1;
+  min-width: 40px;
+}
+
+.hud-icon {
+  font-size: 15px;
+  opacity: 0.9;
+}
+
+.gold-icon {
+  color: var(--gold);
+}
+
+.pop-icon {
+  color: var(--player);
+}
+
+.time-icon {
+  color: #9fb0c8;
+}
+
+.hud-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+#hud-gold {
+  color: var(--gold);
+}
+
+.hud-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-ai-source {
+  font-size: 12px;
+  color: var(--text-dim);
+  pointer-events: auto;
+  cursor: default;
+}
+
+.hud-ai-source.deepseek {
+  color: #6ee7a0;
+}
+
+/* ---------------------------------------------------------------- 选中面板 */
+.selection-panel {
+  position: fixed;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 420px;
+  padding: 10px 14px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.selection-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.selection-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.selection-hint {
+  font-size: 11px;
+  color: #6c7d96;
+  margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------- 生产面板 */
+.production-panel {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+  align-items: stretch;
+}
+
+.prod-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 78px;
+  padding: 8px 10px 6px;
+  background: linear-gradient(180deg, #1a2233, #101623);
+  border: 1px solid #2a3550;
+  border-radius: 9px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.prod-btn:hover {
+  border-color: #4a6aa8;
+}
+
+.prod-btn.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+
+.prod-key {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  font-size: 10px;
+  color: #8fa3c2;
+  border: 1px solid #33405c;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.prod-shape {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin-top: 8px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+.prod-shape.spear {
+  background: #4a90d9;
+}
+
+.prod-shape.sword {
+  background: #8a6bd9;
+}
+
+.prod-shape.archer {
+  background: #d9a03a;
+}
+
+.prod-shape.cavalry {
+  background: #d95a5a;
+}
+
+.prod-name {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.prod-cost {
+  font-size: 11px;
+  color: var(--gold);
+}
+
+.prod-progress {
+  width: 100%;
+  height: 4px;
+  background: #0a0f18;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 1px;
+}
+
+.prod-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2f80ed, #6ee7a0);
+  transition: width 0.1s linear;
+}
+
+.queue-display {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding-left: 6px;
+  min-width: 90px;
+  max-width: 150px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------------------------- 小地图 */
+.minimap-wrap {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  padding: 6px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 10px;
+}
+
+#minimap {
+  display: block;
+  border-radius: 6px;
+  background: #0a0f18;
+}
+
+/* ---------------------------------------------------------------- Toast */
+.toasts {
+  position: fixed;
+  top: 66px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.toast {
+  padding: 7px 12px;
+  background: rgba(20, 28, 42, 0.92);
+  border: 1px solid var(--hud-border);
+  border-left: 3px solid var(--player);
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  animation: toast-in 0.2s ease;
+}
+
+.toast.warn {
+  border-left-color: #ffb020;
+}
+
+.toast.error {
+  border-left-color: var(--enemy);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ---------------------------------------------------------------- 结束覆盖层 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 8, 14, 0.7);
+  backdrop-filter: blur(3px);
+  z-index: 50;
+}
+
+.overlay-box {
+  padding: 34px 48px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.overlay-title {
+  font-size: 42px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  letter-spacing: 4px;
+}
+
+.overlay-title.victory {
+  color: #6ee7a0;
+}
+
+.overlay-title.defeat {
+  color: var(--enemy);
+}
+
+.overlay-title.draw {
+  color: var(--gold);
+}
+
+.overlay-sub {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 22px;
+  line-height: 1.7;
+}
+
+.overlay-btn {
+  padding: 10px 30px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0a0f18;
+  background: var(--gold);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+
+.overlay-btn:hover {
+  filter: brightness(1.1);
+}
+
+/* ---------------------------------------------------------------- 调试面板 */
+.debug-panel {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  max-width: 260px;
+  padding: 8px 12px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.hidden {
+  display: none !important;
+}

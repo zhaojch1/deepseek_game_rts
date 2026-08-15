@@ -1,0 +1,15 @@
+{
+  "name": "deepseek-game-rts",
+  "version": "1.0.0",
+  "description": "网页端二维 RTS 游戏（第一阶段：出兵系统），零依赖静态服务器 + DeepSeek AI 指挥官代理",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
