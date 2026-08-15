@@ -31,7 +31,9 @@ RTS.Unit = (function () {
       state: 'idle', // idle | move | attack | attackMove
       path: [],
       pathIndex: 0,
-      orderTarget: null, // {x,y} 移动目的地
+      orderTarget: null, // {x,y} 移动目的地（move/attackMove 的目标）
+      holdX: x, // 驻守点：idle/到达后自动反击的锚点，追出后归位
+      holdY: y,
       attackTarget: null, // {kind:'unit'|'base', ref, id} 当前攻击目标
       attackCooldown: 0,
       attackWindup: 0,
@@ -210,7 +212,14 @@ RTS.Unit = (function () {
             unit.attackTarget = acq;
           } else {
             const arrived = moveAlongPath(unit, dt);
-            if (arrived) unit.state = 'idle';
+            if (arrived) {
+              // 到达攻击移动目的地：落位驻守，转为 idle 并在原地自动反击
+              unit.holdX = unit.x;
+              unit.holdY = unit.y;
+              unit.state = 'idle';
+              unit.isStuck = false;
+              unit.stuckTimer = 0;
+            }
             // 移动中亦会就近自动攻击（在射程内）
             const nearby = RTS.Combat.acquire(unit, unit.range);
             if (nearby) unit.attackTarget = nearby;
@@ -222,6 +231,8 @@ RTS.Unit = (function () {
         // 右键移动 = 无条件前进，途中不自动索敌，保证随时可改向/掉头
         const arrived = moveAlongPath(unit, dt);
         if (arrived) {
+          unit.holdX = unit.x;
+          unit.holdY = unit.y;
           unit.state = 'idle';
           unit.isStuck = false;
           unit.stuckTimer = 0;
@@ -239,10 +250,19 @@ RTS.Unit = (function () {
       }
       case 'idle':
       default: {
-        const acq = RTS.Combat.acquire(unit, RTS.CONFIG.acquireRadius);
+        // 驻守反击：在驻守点附近自动索敌，追出一定范围后归位
+        const holdR = Math.max(RTS.CONFIG.acquireRadius, 220);
+        const acq = RTS.Combat.acquire(unit, holdR);
         if (acq) {
           unit.attackTarget = acq;
           unit.state = 'attack'; // 追击并攻击
+        } else if (Math.hypot(unit.x - unit.holdX, unit.y - unit.holdY) > 20) {
+          // 远离驻守点：归位（仅当未被攻击）
+          unit.orderTarget = { x: unit.holdX, y: unit.holdY };
+          moveAlongPath(unit, dt);
+          if (distTo(unit, unit.holdX, unit.holdY) < RTS.CONFIG.arriveThreshold) {
+            unit.orderTarget = null;
+          }
         }
         break;
       }
@@ -261,6 +281,8 @@ RTS.Unit = (function () {
     unit.stuckRefX = unit.x;
     unit.stuckRefY = unit.y;
     unit.isStuck = false;
+    unit.holdX = unit.orderTarget.x;
+    unit.holdY = unit.orderTarget.y;
   }
 
   function orderAttackMove(unit, x, y) {
@@ -274,6 +296,8 @@ RTS.Unit = (function () {
     unit.stuckRefX = unit.x;
     unit.stuckRefY = unit.y;
     unit.isStuck = false;
+    unit.holdX = unit.orderTarget.x;
+    unit.holdY = unit.orderTarget.y;
   }
 
   function orderAttack(unit, target) {

@@ -159,11 +159,21 @@ RTS.UI = (function () {
       names.join('  ') + (maxHp > 0 ? `  ·  平均血量 ${Math.round((totalHp / maxHp) * 100)}%` : '');
   }
 
+  const PHASE_LABEL = {
+    build: '发育',
+    rally: '集结',
+    harass: '试探',
+    assault: '总攻',
+    defend: '回防',
+    retreat: '撤退',
+  };
+
   function updateDebugPanel(st) {
     const ai = st.ai;
     const lines = [];
     lines.push(`时间 ${fmtTime(st.time)}   FPS ${st.fps ?? 0}`);
     lines.push(`AI 来源：${ai.deepseekActive ? 'DeepSeek' : '规则'}`);
+    lines.push(`AI 态势：${PHASE_LABEL[ai.phase] || ai.phase}`);
     lines.push(`AI 进攻倾向：${ai.strategy.aggression}`);
     if (ai.strategy.armyFocus) lines.push(`AI 兵种倾向：${RTS.Unit.typeStats(ai.strategy.armyFocus).name}`);
     if (ai.lastDecision) lines.push(`最近决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);

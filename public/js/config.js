@@ -130,6 +130,13 @@ RTS.CONFIG = {
   aiAttackCooldownMax: 45,
   aiArmyThreshold: 10, // 集结到多少兵力发起进攻
   aiDefenseRadius: 560, // 玩家单位进入该范围触发回防
+  // AI 高层态势状态机（build/rally/harass/assault/defend/retreat）
+  aiRallyPointDist: 260, // 集结点距基地的距离
+  aiHarassThreshold: 12, // 兵力达到该值可发起试探
+  aiAssaultRatio: 0.75, // 兵力达到敌方该比例或处于优势时总攻
+  aiRetreatThreshold: 0.45, // 兵力跌到敌方该比例以下时撤退
+  aiDefenseIntruders: 3, // 基地附近入侵者达到该数量触发回防
+  aiBuildMaxUnits: 8, // 发育/集结阶段持续生产的兵力上限（超出则该阶段下主要靠集结）
 
   // ---------------------------------------------------------------- 快捷键
   hotkeys: { spear: 'Q', sword: 'W', archer: 'E', cavalry: 'R' },
