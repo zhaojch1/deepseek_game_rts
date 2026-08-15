@@ -109,7 +109,7 @@ RTS.Combat = (function () {
     if (isRanged && RTS.World.isCoverPx(t.x, t.y)) {
       dmg = Math.floor(dmg * C().coverRangedMul);
     }
-    // 护甲升级：百分比减伤（每级 -pct，最多 3 级）
+    // 护甲升级：百分比减伤（每级 -pct，最多 5 级）
     const armorLvl = (RTS.state[t.owner].upgrades && RTS.state[t.owner].upgrades.armor) || 0;
     if (armorLvl > 0) dmg = Math.floor(dmg * (1 - armorLvl * C().upgrades.armor.pct));
     if (dmg < 1) dmg = 1;
@@ -118,10 +118,10 @@ RTS.Combat = (function () {
     return dmg;
   }
 
-  /** 结算一次对基地的伤害 */
-  function hitBase(attackValue, base) {
+  /** 结算一次对基地的伤害（v8：siegeMul 来自攻击方阵营的「破城技术」等级） */
+  function hitBase(attackValue, base, mul) {
     if (!base || base.hp <= 0) return 0;
-    const dmg = Math.max(1, Math.floor(attackValue * C().baseDamageMultiplier));
+    const dmg = Math.max(1, Math.floor(attackValue * C().baseDamageMultiplier * (mul || 1)));
     base.hp -= dmg;
     spawnDamageNumber(base.x + (Math.random() - 0.5) * 24, base.y - base.radius * 0.5, dmg, '#ff8a5a');
     if (base.hp <= 0) {
@@ -136,7 +136,10 @@ RTS.Combat = (function () {
     if (target.kind === 'unit') {
       applyUnitDamage(unit.type, RTS.Resources.effectiveAttack(unit), target.ref, false);
     } else if (target.kind === 'base') {
-      hitBase(RTS.Resources.effectiveAttack(unit), target.ref);
+      // v8：单位定义可带 baseMul（如锤子兵 ×1.5 攻城），叠乘破城科技
+      const def = RTS.Units.get(unit.type);
+      const baseMul = (def && def.baseMul) || 1;
+      hitBase(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref, RTS.Resources.siegeMul(unit.owner));
     }
   }
 

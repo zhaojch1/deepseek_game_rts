@@ -68,6 +68,7 @@ for (const u of units.values()) {
   unitsMd += `| 标签 | ${(u.tags || []).map((t) => `\`${t}\``).join(' ')} |\n`;
   unitsMd += `| 克制(攻击方) | ${bonus} |\n`;
   unitsMd += `| 抗性(受击方) | ${resist} |\n`;
+  unitsMd += `| 攻城(对基地) | ${u.baseMul ? `×${u.baseMul}` : '—'} |\n`;
   unitsMd += `| 快捷键 | ${u.hotkey || '—'} |\n`;
   unitsMd += `| AI 角色 | ${(u.ai && u.ai.desc) || '—'} |\n\n`;
   unitsMd += `${u.doc || ''}\n\n`;

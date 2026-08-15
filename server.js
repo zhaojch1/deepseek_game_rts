@@ -99,8 +99,9 @@ const VALID_ARMY_FOCUS = Array.from(DEFS.units.keys());
 function unitIntro(u) {
   const bonus = Object.entries(u.bonusVs || {}).map(([k, v]) => `${k}×${v}`).join('、') || '无克制';
   const tags = (u.tags || []).join('/');
+  const siege = u.baseMul ? ` 攻城[基地×${u.baseMul}]` : '';
   return `${u.id}(${u.name})：生命${u.hp} 攻击${u.attack} 射程${u.range}格 攻速${u.attackInterval}s ` +
-    `移速${u.speed}格/s 成本${u.cost} 训练${u.trainTime}s 标签[${tags}] 克制[${bonus}]。${u.doc || ''}`;
+    `移速${u.speed}格/s 成本${u.cost} 训练${u.trainTime}s 标签[${tags}] 克制[${bonus}]${siege}。${u.doc || ''}`;
 }
 
 function mapIntro(m) {
@@ -287,6 +288,9 @@ function buildSystemPrompt(side) {
     '你是 RTS 游戏的' + who + '指挥官。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
     '【可用兵种】(armyFocus 只能取下列单位 id 之一)：\n' + UNITS_INTRO + '\n\n' +
     '【可选地图】：\n' + MAPS_INTRO + '\n\n' +
+    '【科技】(myUpgrades 字段为当前等级，每线最高 5 级)：' +
+    'attack军备锻造(攻击)/armor铁甲研究(减伤)/defense城防工事(箭塔与耐久)/' +
+    'siegecraft破城技术(对基地伤害)/mobility疾行军(移速)。\n\n' +
     '【JSON 字段】(除 comment 外都可省略)：' +
     'armyFocus(兵种倾向，取上面兵种 id 之一)、' +
     'aggression(0-100 进攻倾向)、' +

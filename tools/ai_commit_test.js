@@ -34,7 +34,8 @@ const files = [
   'public/js/config.js', 'public/js/registry.js',
   'public/js/units/spear.js', 'public/js/units/sword.js', 'public/js/units/archer.js',
   'public/js/units/crossbow.js', 'public/js/units/cavalry.js',
-  'public/js/maps/valley_river.js', 'public/js/maps/wide_river.js',
+  'public/js/units/hammer.js', 'public/js/units/horse_archer.js', 'public/js/units/wall.js',
+  'public/js/maps/valley_river.js', 'public/js/maps/wide_river.js', 'public/js/maps/grand_basin.js',
   'public/js/world.js', 'public/js/pathfinding.js', 'public/js/camera.js',
   'public/js/unit.js', 'public/js/combat.js', 'public/js/production.js',
   'public/js/resources.js', 'public/js/projectiles.js', 'public/js/ai.js',
@@ -49,7 +50,7 @@ for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filenam
   const mkFaction = (owner, base) => ({
     owner, gold: 500, goldRate: 5, wood: 0, woodRate: 0, stone: 0, stoneRate: 0,
     populationCap: 100, base, productionQueue: [], units: new Map(),
-    upgrades: { attack: 0, armor: 0, defense: 0 },
+    upgrades: { attack: 0, armor: 0, defense: 0, siegecraft: 0, mobility: 0 },
   });
   RTS.state = {
     time: 0, phase: 'running', fps: 0, debugMode: false,

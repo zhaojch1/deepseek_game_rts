@@ -10,7 +10,7 @@ RTS.UI = (function () {
 
   const C = () => RTS.CONFIG;
 
-  // 生产按钮按键盘顺序排列（QWERTY 第一行…）：Q/W/E/R/T → 长矛/刀盾/弓箭/骑兵/弩手
+  // 生产按钮按键盘顺序排列（QWERTY 第一行…）：Q/W/E/R/T/Y/U/I → 长矛/刀盾/弓箭/骑兵/弩手/锤子/骑射/肉盾
   const HOTKEY_RANK = 'QWERTYUIOPASDFGHJKLZXCVBNM1234567890';
   function hotkeyRank(def) {
     const h = (def.hotkey || '').toUpperCase();
@@ -389,7 +389,7 @@ RTS.UI = (function () {
     lines.push(`敌方 LLM 调用次数：${ai.deepseekCount}`);
     lines.push(`玩家资源：🪵${Math.floor(st.player.wood)} 🪨${Math.floor(st.player.stone)}`);
     const up = st.player.upgrades;
-    lines.push(`玩家升级：攻${up.attack}/护${up.armor}/城防${up.defense}`);
+    lines.push(`玩家升级：攻${up.attack}/护${up.armor}/城防${up.defense}/破城${up.siegecraft || 0}/疾行${up.mobility || 0}`);
     el.debugPanel.textContent = lines.join('\n');
   }
 

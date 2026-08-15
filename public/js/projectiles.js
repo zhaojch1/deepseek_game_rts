@@ -83,7 +83,7 @@ RTS.Projectiles = (function () {
         if (target.kind === 'unit') {
           RTS.Combat.applyUnitDamage(p.attackerType, p.damage, target.ref, true);
         } else if (target.kind === 'base') {
-          RTS.Combat.hitBase(p.damage, target.ref);
+          RTS.Combat.hitBase(p.damage, target.ref, RTS.Resources.siegeMul(p.owner));
         }
         list.splice(i, 1);
         continue;

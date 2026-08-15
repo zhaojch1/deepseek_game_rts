@@ -76,12 +76,14 @@ RTS.CONFIG = {
   captureSpeed: 0.8, // 占领控制值变化 / 秒
   captureThreshold: 0.5, // 控制值越过 ±threshold 即易主（-1..1）
 
-  // ---------------------------------------------------------------- 升级
-  upgradeMaxLevel: 3,
+  // ---------------------------------------------------------------- 升级（v8：五线科技，每线最高 5 级）
+  upgradeMaxLevel: 5,
   upgrades: {
-    attack: { name: '军备锻造', resource: 'wood', costs: [100, 180, 280], mul: 0.18, desc: '全体攻击 +18%/级' },
-    armor: { name: '铁甲研究', resource: 'wood', costs: [80, 150, 240], pct: 0.10, desc: '受到伤害 -10%/级' },
-    defense: { name: '城防工事', resource: 'stone', costs: [120, 220, 340], hpBonus: 900, arrowsPerLevel: 1, desc: '箭塔+1支/级，耐久+900/级' },
+    attack: { name: '军备锻造', resource: 'wood', costs: [100, 180, 280, 420, 620], mul: 0.12, desc: '全体攻击 +12%/级' },
+    armor: { name: '铁甲研究', resource: 'wood', costs: [80, 150, 240, 360, 540], pct: 0.08, desc: '受到伤害 -8%/级' },
+    defense: { name: '城防工事', resource: 'stone', costs: [120, 220, 340, 500, 720], hpBonus: 600, arrowsPerLevel: 1, desc: '箭塔+1支/级，耐久+600/级' },
+    siegecraft: { name: '破城技术', resource: 'stone', costs: [140, 240, 360, 520, 760], baseMul: 0.10, desc: '对基地伤害 +10%/级' },
+    mobility: { name: '疾行军', resource: 'wood', costs: [100, 180, 280, 420, 620], mul: 0.06, desc: '新训练单位移速 +6%/级' },
   },
 
   // ---------------------------------------------------------------- 基地防御（城堡箭塔）
@@ -89,7 +91,7 @@ RTS.CONFIG = {
   baseDefenseDamage: 14, // 单支塔箭基础伤害
   baseDefenseInterval: 1.4, // 每轮箭雨间隔（秒）
   baseDefenseArrows: 2, // 每轮基础箭数
-  baseDefenseDamagePerLevel: 0.4, // 每级城防提升的塔箭伤害倍率
+  baseDefenseDamagePerLevel: 0.3, // 每级城防提升的塔箭伤害倍率（v8：5 级制下调，防后期箭塔过强）
   // 四座角塔相对基地中心的位置（以 baseRadius 为比例的偏移）
   baseTowerOffsets: [
     { dx: -0.85, dy: -0.65 },

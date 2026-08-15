@@ -59,6 +59,20 @@ RTS.Resources = (function () {
     return unit.attack * (1 + lvl * C().upgrades.attack.mul);
   }
 
+  /** v8：破城技术——对敌方基地伤害倍率（siegecraft 升级，默认 1.0） */
+  function siegeMul(owner) {
+    const lvl = levelOf(RTS.state[owner], 'siegecraft');
+    return 1 + lvl * C().upgrades.siegecraft.baseMul;
+  }
+
+  /** v8：疾行军——新训练单位的移速倍率（mobility 升级，默认 1.0） */
+  function unitSpeedMul(owner) {
+    const st = RTS.state;
+    if (!st || !st[owner]) return 1;
+    const lvl = levelOf(st[owner], 'mobility');
+    return 1 + lvl * C().upgrades.mobility.mul;
+  }
+
   // ---------------------------------------------------------------- 节点占领
 
   function captureUpdate(dt) {
@@ -180,6 +194,8 @@ RTS.Resources = (function () {
 
   return {
     effectiveAttack,
+    siegeMul,
+    unitSpeedMul,
     levelOf,
     upgradeCost,
     canUpgrade,

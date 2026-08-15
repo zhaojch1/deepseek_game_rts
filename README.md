@@ -14,7 +14,7 @@ node server.js
 
 浏览器打开 `http://localhost:3000`（默认端口 3000，可用 `PORT` 覆盖）。零依赖，无需 `npm install`，仅需 Node.js ≥ 18。
 
-打开后先进入**主菜单**：从地图列表选择一张地图（小地图「河谷三路」/ 中地图「广域河谷」），点击「开始游戏」。对局结束可「再来一局」（同图重开）或「主菜单」（返回重新选图）。
+打开后先进入**主菜单**：从地图列表选择一张地图（小地图「河谷三路」/ 中地图「广域河谷」/ 大地图「大盆地」），点击「开始游戏」。对局结束可「再来一局」（同图重开）或「主菜单」（返回重新选图）。
 
 ### 启用大模型 AI（可选）
 
@@ -43,7 +43,7 @@ API Key 仅保存在后端，绝不出现在前端。某侧未配置 Key 时，�
 | 右键 | 移动 / 攻击指定目标 |
 | 点击己方城堡 + 右键 | 设置单位出生集结点 |
 | A + 左键 | 攻击移动 |
-| Q / W / E / R / T | 生产 长矛兵 / 刀盾兵 / 弓箭手 / 骑兵 / 弩手 |
+| Q / W / E / R / T / Y / U / I | 生产 长矛兵 / 刀盾兵 / 弓箭手 / 骑兵 / 弩手 / 锤子兵 / 骑射手 / 肉盾 |
 | Shift + 选择 | 追加选择 |
 | Esc | 取消选择 |
 | 空格 | 视角回到基地 |
@@ -51,20 +51,20 @@ API Key 仅保存在后端，绝不出现在前端。某侧未配置 Key 时，�
 | F2 | 切换调试面板（AI 决策来源） |
 | 顶部「AI接管」按钮 | 把玩家部队指挥权交给 AI（再点一次交还） |
 
-> 生产快捷键由各单位定义里的 `hotkey` 字段动态决定，出兵卡片按键盘顺序（Q/W/E/R/T）排列，新增单位会自动获得新键位并插入对应位置。
+> 生产快捷键由各单位定义里的 `hotkey` 字段动态决定，出兵卡片按键盘顺序（Q/W/E/R/T/Y/U/I）排列，新增单位会自动获得新键位并插入对应位置。
 >
 > **AI 决策消息**：双方大模型每次决策会显示在屏幕两侧的常驻消息条（玩家 AI 左侧蓝色、敌方 AI 右侧红色），不会一闪而过；每侧最多保留 5 条，超过后最老的一条慢慢淡出。普通消息（占领资源点、训练完成等）不再弹提示。
 >
 > 主菜单可勾选「开局即由 AI 接管玩家部队」，进入对局立刻进入 AI 指挥模式。
 >
-> 资源点为**持久控制点**：派部队驻守到易主后，即使离开也持续产出；敌方驻守可反夺。科技升级面板位于屏幕左侧（攻击/护甲用木材、城防用石料）。森林为远程减伤掩体，地图中央河流仅桥梁可渡。
+> 资源点为**持久控制点**：派部队驻守到易主后，即使离开也持续产出；敌方驻守可反夺。科技升级面板位于屏幕左侧（攻击/护甲/疾行用木材，城防/破城用石料），五条科技线最高均为 5 级。森林为远程减伤掩体，地图中央河流仅桥梁可渡。
 
 ## 核心特性
 
-- **单位 skill 化**：每种单位是 `public/js/units/*.js` 下的自包含定义（数值 + 克制 + 标签 + 绘制 + AI 介绍），运行时走 `RTS.Units` 注册表。当前 5 兵种：长矛兵 / 刀盾兵 / 弓箭手 / 弩手 / 骑兵。
-- **地图 skill 化**：每张地图是 `public/js/maps/*.js` 下的自包含定义（尺寸 small/medium/large + 基地 + 通道 + 资源 + 地形生成）。当前 2 张：河谷三路（小）、广域河谷（中）。
+- **单位 skill 化**：每种单位是 `public/js/units/*.js` 下的自包含定义（数值 + 克制 + 标签 + 绘制 + AI 介绍），运行时走 `RTS.Units` 注册表。当前 8 兵种：长矛兵 / 刀盾兵 / 弓箭手 / 弩手 / 骑兵 / 锤子兵 / 骑射手 / 肉盾。
+- **地图 skill 化**：每张地图是 `public/js/maps/*.js` 下的自包含定义（尺寸 small/medium/large + 基地 + 通道 + 资源 + 地形生成）。当前 3 张：河谷三路（小）、广域河谷（中）、大盆地（大）。
 - **大模型完全接管 AI**：战略状态（`phase`）100% 来自所选大模型的 `stance`/`attackNow`，连续刷新（每 3–6s）；34 种指挥态势作为低层执行器的「指令集」。支持 DeepSeek 与豆包两家供应商，主菜单为玩家/敌方分别选择；玩家可随时点顶部按钮把自己的部队交给 AI 接管（AI vs AI），也可在主菜单勾选开局即接管。AI 决策以常驻消息条呈现（玩家左蓝 / 敌方右红，最多 5 条）。
-- **资源 / 科技 / 城堡**：金/木/石三资源 + 持久控制点；攻击/护甲/城防三线科技；城堡四角塔自动射箭守护，可升级。
+- **资源 / 科技 / 城堡**：金/木/石三资源 + 持久控制点；攻击/护甲/城防/破城/疾行五线科技（最高 5 级）；城堡四角塔自动射箭守护，可升级。
 - **主菜单选图**：开局前选择地图，新增地图自动出现在菜单里。
 
 ## 目录结构
@@ -92,9 +92,11 @@ deepseek_game_rts/
         ├── registry.js       # RTS.Units / RTS.Maps 注册表 + 绘制工具库
         ├── units/            # ★ 单位定义（每单位一个文件）
         │   ├── spear.js / sword.js / archer.js / crossbow.js / cavalry.js
+        │   ├── hammer.js / horse_archer.js / wall.js   # v8 新增
         ├── maps/             # ★ 地图定义（每地图一个文件）
         │   ├── valley_river.js   # 小地图 64×64
-        │   └── wide_river.js     # 中地图 96×96
+        │   ├── wide_river.js     # 中地图 96×96
+        │   └── grand_basin.js    # 大地图 128×128（v8 新增）
         ├── world.js          # 通用地图容器（不含具体地形）
         ├── pathfinding.js    # 网格 A* 寻路
         ├── camera.js         # 相机与视野
@@ -112,7 +114,7 @@ deepseek_game_rts/
 
 ## 调参
 
-- **跨单位/跨地图的平衡数值**（军费增长、人口、基地耐久、AI 节奏、投射物速度等）在 `public/js/config.js`。
+- **跨单位/跨地图的平衡数值**（军费增长、人口、基地耐久、五线科技、AI 节奏、投射物速度等）在 `public/js/config.js`。
 - **单个单位的数值/克制/标签**在 `public/js/units/<id>.js`。
 - **单个地图的尺寸/基地/通道/资源**在 `public/js/maps/<id>.js`。
 - 改完单位/地图 `doc` 后运行 `node tools/build_intro.js` 刷新介绍文件。
@@ -155,7 +157,7 @@ Faction = {
   owner, gold/goldRate, wood/woodRate, stone/stoneRate,
   populationCap, productionQueue: [], units: Map<id, Unit>,
   base: { x, y, hp, maxHp, radius, owner, defenseCooldown, towerFlash[4], rallyX, rallyY },
-  upgrades: { attack, armor, defense },
+  upgrades: { attack, armor, defense, siegecraft, mobility },   // 五线科技，每线最高 5 级
 }
 ```
 
@@ -186,7 +188,7 @@ Faction = {
 
 - `range`/`speed` 是「格」设计值，实际换算在 `RTS.Units.rangePx` 与 `RTS.Unit.create`（`rangeScale=34`/`speedScale=48`）。
 - 保留 `terrainTypes`、`resourceNodes`、`captureSpeed`、`upgrades`、`baseDefense*`、`arrowSpeed`/`towerArrowSpeed`、`coverRangedMul`、AI 节奏、`defaultMap` 等。`worldWidth/worldHeight` getter 从 `RTS.world` 动态取值。
-- **经济节奏（v7.2）**：`baseGoldRate=20`（基础军费 +20/s）、`goldRateGrowthPerMin=0.5`（每 60s +0.5/s）、`goldRateMax=30`；金矿节点 `resourceNodes.gold.income=10`（每占一个金矿 +10/s）。训练时长在各单位定义 `trainTime` 内，当前为 1s（长矛）/ 1.33s（刀盾）/ 1.5s（弓箭）/ 2s（弩手）/ 2s（骑兵）。
+- **经济节奏（v7.2）**：`baseGoldRate=20`（基础军费 +20/s）、`goldRateGrowthPerMin=0.5`（每 60s +0.5/s）、`goldRateMax=30`；金矿节点 `resourceNodes.gold.income=10`（每占一个金矿 +10/s）。训练时长在各单位定义 `trainTime` 内，当前为 1s（长矛）/ 1.33s（刀盾）/ 1.5s（弓箭）/ 2s（弩手）/ 2s（骑兵）/ 1.8s（锤子）/ 2s（骑射）/ 2s（肉盾）。
 
 ### world.js（通用地图容器）
 
@@ -214,7 +216,7 @@ Faction = {
 
 - **combat**：空间分桶；`acquire` 索敌；`applyUnitDamage` 统一「克制 × 森林掩体 − 护甲减伤」；克制经 `RTS.Units.counterMul` 动态取；`kill` 生成尸体。
 - **production**：被动军费 + FIFO 队列；`spawnUnit` 从城堡城门出生并 `orderAttackMove` 前往基地 `rallyX/rallyY` 集结点。
-- **resources**：资源点持久控制；三线升级；城堡防御从离目标最近的角塔射塔箭（`towerFlash` 闪光）。
+- **resources**：资源点持久控制；五线升级（攻击/护甲/城防/破城/疾行）；城堡防御从离目标最近的角塔射塔箭（`towerFlash` 闪光）。
 - **projectiles**：实体箭/塔箭，`spawnArrow`/`spawnTowerArrow` 的 `target` 必须是 `{kind, ref}` 包装对象。
 
 ### ai.js（指挥官 AI）—— 大模型完全接管（DeepSeek / 豆包）
@@ -290,3 +292,4 @@ v7 起 AI 控制器按阵营参数化：`RTS.AI.init(owner, provider)`，`owner`
 - **v7**：AI 控制器按阵营参数化（`RTS.AI.init(owner, provider)`）+ 主菜单可选玩家/敌方 AI 大模型（DeepSeek / 豆包）+ 顶部「AI接管」按钮（玩家部队可交给 AI，AI vs AI）+ 出兵卡片按键盘顺序排列 + 服务端超时放宽至 20s。
 - **v7.1**：AI 决策消息常驻条（玩家左蓝 / 敌方右红，最多 5 条，超出最老淡出，普通消息不再弹提示）+ 主菜单「开局即由 AI 接管」勾选 + AI 控制精度优化（重复下令去抖、撤退/龟缩强制脱离战斗、集火更精确）。
 - **v7.2**：节奏调爽——基础军费 +20/s（每 60s 再 +0.5/s，上限 30）、每个占领金矿 +10/s、全部单位训练时长减半（`public/js/units/*.js` 的 `trainTime`）。
+- **v8**：兵种扩至 8 个——新增锤子兵（重锤破甲/攻城）、骑射手（高速风筝）、肉盾（超高生命壁垒），并重做克制矩阵保证无一家独大；新增大型地图「大盆地」（128×128，金8/木12/石14 共 34 资源点）；科技扩为五线（新增破城技术、疾行军），全部科技上限由 3 级提到 5 级，AI 升级策略同步跟进。

@@ -56,8 +56,12 @@ const files = [
   'public/js/units/archer.js',
   'public/js/units/crossbow.js',
   'public/js/units/cavalry.js',
+  'public/js/units/hammer.js',
+  'public/js/units/horse_archer.js',
+  'public/js/units/wall.js',
   'public/js/maps/valley_river.js',
   'public/js/maps/wide_river.js',
+  'public/js/maps/grand_basin.js',
   'public/js/world.js',
   'public/js/pathfinding.js',
   'public/js/camera.js',
@@ -82,7 +86,7 @@ for (const f of files) {
   const mkFaction = (owner, base) => ({
     owner, gold: 300, goldRate: 5, wood: 0, woodRate: 0, stone: 0, stoneRate: 0,
     populationCap: 100, base, productionQueue: [], units: new Map(),
-    upgrades: { attack: 0, armor: 0, defense: 0 },
+    upgrades: { attack: 0, armor: 0, defense: 0, siegecraft: 0, mobility: 0 },
   });
 
   RTS.state = {

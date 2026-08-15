@@ -23,7 +23,7 @@ RTS.AI = (function () {
     // 经济
     build: 'build',             // 发育：早期少量兵力就地扩充
     boom: 'boom',               // 爆兵：扩张期高强度生产
-    tech: 'tech',               // 科技：优先三线升级
+    tech: 'tech',               // 科技：优先五线升级
     eco_defend: 'eco_defend',   // 经济防守：生产 + 基地警戒
     // 侦查
     scout: 'scout',             // 侦查：派快马探路
@@ -304,16 +304,32 @@ RTS.AI = (function () {
 
   function aiUpgrade(ai) {
     const controlled = mine(ai);
+    // 基地安全优先：城防（耐久 + 箭塔）
     if (RTS.Resources.canUpgrade(controlled, 'defense').ok) {
       RTS.Resources.upgrade(controlled, 'defense');
       return;
     }
+    // 攻击/护甲均衡推进（v8：5 级制，先点满再考虑攻城/疾行）
     const a = RTS.Resources.canUpgrade(controlled, 'attack');
     const m = RTS.Resources.canUpgrade(controlled, 'armor');
     const aLvl = RTS.Resources.levelOf(controlled, 'attack');
     const mLvl = RTS.Resources.levelOf(controlled, 'armor');
-    if (a.ok && (aLvl <= mLvl || !m.ok)) RTS.Resources.upgrade(controlled, 'attack');
-    else if (m.ok) RTS.Resources.upgrade(controlled, 'armor');
+    if (a.ok && (aLvl <= mLvl || !m.ok)) {
+      RTS.Resources.upgrade(controlled, 'attack');
+      return;
+    }
+    if (m.ok) {
+      RTS.Resources.upgrade(controlled, 'armor');
+      return;
+    }
+    // 攻击/护甲满级后：破城技术 → 疾行军
+    const s = RTS.Resources.canUpgrade(controlled, 'siegecraft');
+    if (s.ok) {
+      RTS.Resources.upgrade(controlled, 'siegecraft');
+      return;
+    }
+    const mob = RTS.Resources.canUpgrade(controlled, 'mobility');
+    if (mob.ok) RTS.Resources.upgrade(controlled, 'mobility');
   }
 
   // ------------------------------------------------------------------ 低层指令
@@ -618,7 +634,13 @@ RTS.AI = (function () {
       enemyArmy: opponentArmyCounts,
       baseHp: Math.round(controlled.base.hp),
       enemyBaseHp: Math.round(opponent.base.hp),
-      myUpgrades: { attack: controlled.upgrades.attack, armor: controlled.upgrades.armor, defense: controlled.upgrades.defense },
+      myUpgrades: {
+        attack: controlled.upgrades.attack,
+        armor: controlled.upgrades.armor,
+        defense: controlled.upgrades.defense,
+        siegecraft: controlled.upgrades.siegecraft || 0,
+        mobility: controlled.upgrades.mobility || 0,
+      },
       myNodes: nodesOf(ai.owner).length,
       enemyNodes: nodesOf(opponent.owner).length,
     };

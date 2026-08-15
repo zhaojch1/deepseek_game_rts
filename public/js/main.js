@@ -26,7 +26,7 @@ RTS.Match = (function () {
       base,
       productionQueue: [],
       units: new Map(),
-      upgrades: { attack: 0, armor: 0, defense: 0 },
+      upgrades: { attack: 0, armor: 0, defense: 0, siegecraft: 0, mobility: 0 },
     });
 
     const state = {

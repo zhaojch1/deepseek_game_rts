@@ -13,6 +13,8 @@ RTS.Unit = (function () {
 
   function create(owner, type, x, y) {
     const s = typeStats(type);
+    // v8：疾行军科技——新训练单位的移速享受阵营「疾行军」等级加成
+    const speedMul = (RTS.Resources && RTS.Resources.unitSpeedMul) ? RTS.Resources.unitSpeedMul(owner) : 1;
     return {
       id: nextId++,
       owner,
@@ -22,7 +24,7 @@ RTS.Unit = (function () {
       radius: s.radius,
       hp: s.hp,
       maxHp: s.hp,
-      speed: s.speed * RTS.CONFIG.speedScale,
+      speed: s.speed * RTS.CONFIG.speedScale * speedMul,
       range: RTS.Units.rangePx(type),
       attack: s.attack,
       attackInterval: s.attackInterval,
