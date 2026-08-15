@@ -7,11 +7,12 @@
 RTS.Match = (function () {
   const C = () => RTS.CONFIG;
 
-  function createState() {
+  function createState(providers) {
     const map = RTS.Maps.current();
     RTS.world = RTS.World.create(map);
     const bases = RTS.World.placeBases(map);
     const Cfg = C();
+    const p = providers || { player: 'deepseek', enemy: 'deepseek' };
 
     const mkFaction = (owner, base) => ({
       owner,
@@ -40,7 +41,8 @@ RTS.Match = (function () {
       damageNumbers: [],
       resources: { nodes: RTS.World.placeResources(map) },
       corpses: [],
-      ai: RTS.AI.init(),
+      ai: RTS.AI.init('enemy', p.enemy),   // 敌方 AI（LLM 接管）
+      playerAI: null,                       // 玩家 AI 接管实例（顶部按钮创建，null 表示未接管）
     };
     RTS.Projectiles.clear();
     return state;
@@ -90,16 +92,30 @@ RTS.Match = (function () {
   }
 
   function restart() {
-    RTS.state = createState();
+    const providers = RTS.UI.getSelectedAIProviders ? RTS.UI.getSelectedAIProviders() : { player: 'deepseek', enemy: 'deepseek' };
+    RTS.state = createState(providers);
+    applyStartTakeover(providers);
     RTS.UI.hideOverlay();
+    if (RTS.UI.clearAIMessages) RTS.UI.clearAIMessages();
     RTS.Camera.setCenter(RTS.state.player.base.x, RTS.state.player.base.y);
   }
 
   function start() {
-    RTS.state = createState();
+    const providers = RTS.UI.getSelectedAIProviders ? RTS.UI.getSelectedAIProviders() : { player: 'deepseek', enemy: 'deepseek' };
+    RTS.state = createState(providers);
+    applyStartTakeover(providers);
     RTS.UI.hideOverlay();
+    if (RTS.UI.clearAIMessages) RTS.UI.clearAIMessages();
     RTS.Camera.init();
     RTS.UI.toast('派部队占领金/木/石资源点，占领后持续产出', 'info');
+  }
+
+  /** v7.1：主菜单勾选「开局即由 AI 接管」时，开局立刻创建玩家 AI 实例 */
+  function applyStartTakeover(providers) {
+    if (RTS.UI.getAITakeoverAtStart && RTS.UI.getAITakeoverAtStart()) {
+      RTS.state.playerAI = RTS.AI.init('player', providers.player);
+      RTS.UI.toast('开局即由 AI 接管玩家部队', 'info');
+    }
   }
 
   /** 返回主菜单：清除对局状态（主循环见 state 为空则只渲染菜单） */
@@ -155,7 +171,7 @@ RTS.Match = (function () {
         if (RTS.state.phase === 'running') {
           RTS.state.time += STEP;
           RTS.Production.update(STEP);
-          RTS.AI.update(STEP);
+          RTS.AI.updateAll(STEP);
           RTS.Combat.rebuildHash();
           RTS.Resources.captureUpdate(STEP);
           RTS.Resources.incomeUpdate(STEP);

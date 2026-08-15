@@ -87,14 +87,7 @@ RTS.Resources = (function () {
       const prev = node.owner;
       node.owner = node.control >= th ? 'player' : node.control <= -th ? 'enemy' : 'neutral';
 
-      // 归属变化时给玩家反馈
-      if (node.owner !== prev) {
-        if (node.owner === 'player') {
-          RTS.UI && RTS.UI.toast('已占领' + (C().resourceNodes[node.type].label || node.type), 'info');
-        } else if (prev === 'player') {
-          RTS.UI && RTS.UI.toast('资源点失守：' + (C().resourceNodes[node.type].label || node.type), 'warn');
-        }
-      }
+      // v7.1：资源点归属变化属于「普通消息」，不再弹 toast，避免干扰 AI 决策消息
     }
   }
 

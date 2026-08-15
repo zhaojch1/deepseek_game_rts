@@ -22,9 +22,9 @@ RTS.CONFIG = {
 
   // ---------------------------------------------------------------- 经济
   initialGold: 300,
-  baseGoldRate: 5, // 基础 +5/s
+  baseGoldRate: 20, // 基础 +20/s（v7.2：提速，战斗更爽快）
   goldRateGrowthPerMin: 0.5, // 每 60s +0.5/s
-  goldRateMax: 10, // 封顶 +10/s
+  goldRateMax: 30, // 封顶 +30/s（须高于基础值，20 分钟时正好到 30）
   goldCap: 2000,
 
   // ---------------------------------------------------------------- 人口
@@ -68,7 +68,7 @@ RTS.CONFIG = {
 
   // ---------------------------------------------------------------- 资源（金 / 木 / 石）
   resourceNodes: {
-    gold: { income: 2.5, radius: 110, color: '#f2c14e', label: '金矿' },
+    gold: { income: 10, radius: 110, color: '#f2c14e', label: '金矿' }, // v7.2：每个金矿 +10/s
     wood: { income: 2.5, radius: 110, color: '#7fc97f', label: '伐木场' },
     stone: { income: 2.2, radius: 110, color: '#9fb0c8', label: '采石场' },
   },
@@ -112,7 +112,7 @@ RTS.CONFIG = {
   // ---------------------------------------------------------------- AI
   aiDecisionIntervalMin: 3, // DeepSeek 调用间隔下限（秒，v4 连续刷新，随时接管）
   aiDecisionIntervalMax: 6, // 上限（秒）
-  aiRequestTimeoutMs: 5000,
+  aiRequestTimeoutMs: 20000, // 前端参考值；实际超时由服务端 AI_TIMEOUT_MS 决定（默认 20s）
   // 规则 AI 参数
   aiBaseAggression: 45,
   aiFirstAttackTime: 45, // 首次进攻时间（秒）
@@ -132,6 +132,8 @@ RTS.CONFIG = {
   aiAllInRatio: 1.4, // 兵力达到敌方该比例以上时倾巢一击
   aiPincerArmy: 24, // 钳形夹击所需兵力
   aiChokeRange: 420, // 隘口/桥头防守判定半径
+  focusFireRadius: 520, // 围城/集火：该范围内单位直接攻击目标，圈外单位先压上再打
+  aiStanceHoldTime: 10, // 态势切换冷却（秒）：非紧急态势在冷却内不重复翻转，防止部队来回横跳
 
   // ---------------------------------------------------------------- 快捷键
   attackMoveKey: 'A',

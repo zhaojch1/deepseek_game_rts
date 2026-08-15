@@ -10,6 +10,14 @@ RTS.UI = (function () {
 
   const C = () => RTS.CONFIG;
 
+  // 生产按钮按键盘顺序排列（QWERTY 第一行…）：Q/W/E/R/T → 长矛/刀盾/弓箭/骑兵/弩手
+  const HOTKEY_RANK = 'QWERTYUIOPASDFGHJKLZXCVBNM1234567890';
+  function hotkeyRank(def) {
+    const h = (def.hotkey || '').toUpperCase();
+    const i = HOTKEY_RANK.indexOf(h);
+    return i === -1 ? 999 : i;
+  }
+
   function init() {
     el.gold = document.getElementById('hud-gold');
     el.goldRate = document.getElementById('hud-gold-rate');
@@ -20,6 +28,7 @@ RTS.UI = (function () {
     el.pop = document.getElementById('hud-pop');
     el.time = document.getElementById('hud-time');
     el.aiSource = document.getElementById('hud-ai-source');
+    el.aiTakeover = document.getElementById('hud-ai-takeover');
     el.selectionPanel = document.getElementById('selection-panel');
     el.selectionTitle = document.getElementById('selection-title');
     el.selectionDetail = document.getElementById('selection-detail');
@@ -37,6 +46,11 @@ RTS.UI = (function () {
     el.prodPanel = document.getElementById('production-buttons');
     el.prodButtons = [];
     el.upgButtons = Array.from(document.querySelectorAll('.upg-btn'));
+    el.playerAIProvider = document.getElementById('ai-provider-player');
+    el.enemyAIProvider = document.getElementById('ai-provider-enemy');
+    el.menuAITakeover = document.getElementById('menu-ai-takeover');
+    el.aiMsgPlayer = document.getElementById('ai-msg-player');
+    el.aiMsgEnemy = document.getElementById('ai-msg-enemy');
 
     // 主菜单：地图选择（由 RTS.Maps 注册表动态生成）
     el.selectedMapId = RTS.CONFIG.defaultMap;
@@ -52,22 +66,28 @@ RTS.UI = (function () {
       showMenu();
     });
 
-    // 生产面板按钮由单位注册表动态生成（新增单位无需改 UI 代码）
-    RTS.Units.all().forEach((def) => {
-      const btn = document.createElement('button');
-      btn.className = 'prod-btn';
-      btn.dataset.type = def.id;
-      btn.title = def.doc || def.name;
-      btn.innerHTML =
-        `<span class="prod-key">${def.hotkey || ''}</span>` +
-        `<span class="prod-icon">${def.icon || ''}</span>` +
-        `<span class="prod-name">${def.name}</span>` +
-        `<span class="prod-cost">🪙${def.cost}</span>` +
-        `<div class="prod-progress"><div class="prod-progress-bar"></div></div>`;
-      btn.addEventListener('click', () => orderProduction(def.id));
-      el.prodPanel.appendChild(btn);
-      el.prodButtons.push(btn);
-    });
+    // 顶部「AI 接管」按钮：把玩家部队指挥权交给 AI（再点一次交还）
+    el.aiTakeover.addEventListener('click', togglePlayerAI);
+
+    // 生产面板按钮由单位注册表动态生成（按热键键盘顺序排列，新增单位无需改 UI 代码）
+    RTS.Units.all()
+      .slice()
+      .sort((a, b) => hotkeyRank(a) - hotkeyRank(b))
+      .forEach((def) => {
+        const btn = document.createElement('button');
+        btn.className = 'prod-btn';
+        btn.dataset.type = def.id;
+        btn.title = def.doc || def.name;
+        btn.innerHTML =
+          `<span class="prod-key">${def.hotkey || ''}</span>` +
+          `<span class="prod-icon">${def.icon || ''}</span>` +
+          `<span class="prod-name">${def.name}</span>` +
+          `<span class="prod-cost">🪙${def.cost}</span>` +
+          `<div class="prod-progress"><div class="prod-progress-bar"></div></div>`;
+        btn.addEventListener('click', () => orderProduction(def.id));
+        el.prodPanel.appendChild(btn);
+        el.prodButtons.push(btn);
+      });
 
     el.upgButtons.forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -86,9 +106,85 @@ RTS.UI = (function () {
     });
   }
 
+  /** 读取主菜单中选定的双方 AI 大模型 */
+  function getSelectedAIProviders() {
+    return {
+      player: el.playerAIProvider ? el.playerAIProvider.value : 'deepseek',
+      enemy: el.enemyAIProvider ? el.enemyAIProvider.value : 'deepseek',
+    };
+  }
+
+  /** 主菜单「开局即由 AI 接管玩家部队」是否勾选 */
+  function getAITakeoverAtStart() {
+    return !!(el.menuAITakeover && el.menuAITakeover.checked);
+  }
+
+  /**
+   * v7.1：AI 决策消息常驻提示条（玩家左蓝 / 敌方右红）。
+   * 消息不会自动消失；每侧最多保留 5 条，超过后最老的一条慢慢淡出。
+   */
+  function aiMessage(side, text) {
+    const box = side === 'player' ? el.aiMsgPlayer : el.aiMsgEnemy;
+    if (!box) return;
+    const item = document.createElement('div');
+    item.className = 'ai-msg ' + side;
+    const head = document.createElement('div');
+    head.className = 'ai-msg-head';
+    head.textContent = '🤖 ' + (side === 'player' ? '玩家 AI' : '敌方 AI');
+    const body = document.createElement('div');
+    body.className = 'ai-msg-body';
+    body.textContent = text || '';
+    item.appendChild(head);
+    item.appendChild(body);
+    box.appendChild(item);
+    // 超过 5 条：把最老的「未在淡出」消息标记为淡出，淡出动画结束后再移除。
+    // 注意一次只淡出一条，且不能同步移除（否则动画失效）；淡出中的消息不再重复标记。
+    if (box.children.length > 5) {
+      let oldest = box.firstElementChild;
+      while (oldest && oldest.classList.contains('fading')) oldest = oldest.nextElementSibling;
+      if (oldest) {
+        oldest.classList.add('fading');
+        const remove = () => {
+          if (oldest.parentNode) oldest.parentNode.removeChild(oldest);
+        };
+        oldest.addEventListener('transitionend', remove, { once: true });
+        // 兜底：万一 transitionend 未触发（极少见），2s 后强制移除
+        setTimeout(remove, 2200);
+      }
+    }
+  }
+
+  /** 开局/重开时清空两侧 AI 消息 */
+  function clearAIMessages() {
+    if (el.aiMsgPlayer) el.aiMsgPlayer.innerHTML = '';
+    if (el.aiMsgEnemy) el.aiMsgEnemy.innerHTML = '';
+  }
+
+  /** 顶部按钮：玩家部队交给 AI 接管（可再点一次交还） */
+  function togglePlayerAI() {
+    const st = RTS.state;
+    if (!st || st.phase !== 'running') return;
+    if (st.playerAI) {
+      st.playerAI = null;
+      toast('已交还玩家控制', 'info');
+    } else {
+      st.playerAI = RTS.AI.init('player', getSelectedAIProviders().player);
+      toast('玩家部队已交由 AI 指挥', 'info');
+    }
+  }
+
+  function playerAIControlled() {
+    const st = RTS.state;
+    return !!(st && st.playerAI);
+  }
+
   function orderProduction(type) {
     const st = RTS.state;
     if (st.phase !== 'running') return;
+    if (playerAIControlled()) {
+      toast('AI 指挥中，无法手动出兵', 'warn');
+      return;
+    }
     const res = RTS.Production.order(st.player, type);
     if (!res.ok) {
       if (res.reason === 'gold') toast('军费不足', 'warn');
@@ -99,6 +195,10 @@ RTS.UI = (function () {
   function orderUpgrade(track) {
     const st = RTS.state;
     if (st.phase !== 'running') return;
+    if (playerAIControlled()) {
+      toast('AI 指挥中，无法手动升级', 'warn');
+      return;
+    }
     const check = RTS.Resources.canUpgrade(st.player, track);
     if (check.reason === 'max') {
       toast('已达最高等级', 'info');
@@ -144,23 +244,32 @@ RTS.UI = (function () {
     el.pop.textContent = player.units.size;
     el.time.textContent = fmtTime(st.time);
 
-    // AI 来源（v4：一旦 DeepSeek 成功接管即视为 DeepSeek 驱动；未接管时为降级自动驾驶）
+    // AI 来源（一旦大模型成功接管即视为大模型驱动；未接管时为降级自动驾驶）
     if (st.ai.deepseekEverActive) {
-      el.aiSource.textContent = 'AI：DeepSeek';
+      el.aiSource.textContent = 'AI：' + (st.ai.provider === 'doubao' ? '豆包' : 'DeepSeek');
       el.aiSource.classList.add('deepseek');
     } else {
       el.aiSource.textContent = 'AI：降级自动驾驶';
       el.aiSource.classList.remove('deepseek');
     }
 
-    // 生产按钮状态（按钮由注册表生成，遍历即可）
+    // AI 接管按钮状态
+    if (st.playerAI) {
+      el.aiTakeover.textContent = '✋ 交还控制';
+      el.aiTakeover.classList.add('active');
+    } else {
+      el.aiTakeover.textContent = '🤖 AI接管';
+      el.aiTakeover.classList.remove('active');
+    }
+
+    // 生产按钮状态（按钮由注册表生成，遍历即可；AI 接管时全部禁用）
     el.prodButtons.forEach((btn) => {
       const type = btn.dataset.type;
       const s = RTS.Unit.typeStats(type);
       const costEl = btn.querySelector('.prod-cost');
       costEl.textContent = '🪙' + s.cost;
       const check = RTS.Production.canOrder(player, type);
-      btn.classList.toggle('disabled', !check.ok);
+      btn.classList.toggle('disabled', !check.ok || !!st.playerAI);
 
       // 进度条：显示该类型首项训练进度
       const bar = btn.querySelector('.prod-progress-bar');
@@ -192,6 +301,7 @@ RTS.UI = (function () {
         btn.classList.remove('maxed');
       }
       btn.classList.toggle('disabled', !RTS.Resources.canUpgrade(player, track).ok && cost !== null);
+      if (st.playerAI) btn.classList.add('disabled');
     });
 
     // 队列显示
@@ -254,20 +364,29 @@ RTS.UI = (function () {
       names.join('  ') + (maxHp > 0 ? `  ·  平均血量 ${Math.round((totalHp / maxHp) * 100)}%` : '');
   }
 
+  function aiSourceLabel(ai) {
+    if (!ai) return '—';
+    return ai.deepseekEverActive
+      ? (ai.provider === 'doubao' ? '豆包' : 'DeepSeek')
+      : '降级自动驾驶';
+  }
+
   function updateDebugPanel(st) {
-    const ai = st.ai;
     const labels = RTS.AI.PHASE_LABEL || {};
+    const ai = st.ai;
     const lines = [];
     lines.push(`时间 ${fmtTime(st.time)}   FPS ${st.fps ?? 0}`);
-    lines.push(`AI 来源：${ai.deepseekEverActive ? 'DeepSeek' : '降级自动驾驶'}`);
-    lines.push(`AI 态势：${labels[ai.phase] || ai.phase}（${ai.phase}）`);
-    lines.push(`AI 进攻倾向：${ai.strategy.aggression}`);
-    if (ai.strategy.armyFocus) lines.push(`AI 兵种倾向：${RTS.Unit.typeStats(ai.strategy.armyFocus).name}`);
-    if (ai.strategy.lane) lines.push(`AI 主攻方向：${ai.strategy.lane}`);
-    if (ai.strategy.targetFocus) lines.push(`AI 目标侧重：${ai.strategy.targetFocus}`);
-    if (ai.lastDecision) lines.push(`最近决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);
-    if (ai.lastDeepseekError) lines.push(`DeepSeek 状态：${ai.lastDeepseekError}`);
-    lines.push(`DeepSeek 调用次数：${ai.deepseekCount}`);
+    lines.push(`敌方 AI：${aiSourceLabel(ai)}（${labels[ai.phase] || ai.phase}）`);
+    if (st.playerAI) {
+      lines.push(`玩家 AI：${aiSourceLabel(st.playerAI)}（${labels[st.playerAI.phase] || st.playerAI.phase}）`);
+    }
+    lines.push(`敌方进攻倾向：${ai.strategy.aggression}`);
+    if (ai.strategy.armyFocus) lines.push(`敌方兵种倾向：${RTS.Unit.typeStats(ai.strategy.armyFocus).name}`);
+    if (ai.strategy.lane) lines.push(`敌方主攻方向：${ai.strategy.lane}`);
+    if (ai.strategy.targetFocus) lines.push(`敌方目标侧重：${ai.strategy.targetFocus}`);
+    if (ai.lastDecision) lines.push(`敌方最近决策：${ai.lastDecision.comment || JSON.stringify(ai.lastDecision)}`);
+    if (ai.lastDeepseekError) lines.push(`敌方 LLM 状态：${ai.lastDeepseekError}`);
+    lines.push(`敌方 LLM 调用次数：${ai.deepseekCount}`);
     lines.push(`玩家资源：🪵${Math.floor(st.player.wood)} 🪨${Math.floor(st.player.stone)}`);
     const up = st.player.upgrades;
     lines.push(`玩家升级：攻${up.attack}/护${up.armor}/城防${up.defense}`);
@@ -323,5 +442,19 @@ RTS.UI = (function () {
     el.menu.classList.add('hidden');
   }
 
-  return { init, update, orderProduction, toast, showOverlay, hideOverlay, showMenu, hideMenu };
+  return {
+    init,
+    update,
+    orderProduction,
+    toast,
+    showOverlay,
+    hideOverlay,
+    showMenu,
+    hideMenu,
+    togglePlayerAI,
+    getSelectedAIProviders,
+    getAITakeoverAtStart,
+    aiMessage,
+    clearAIMessages,
+  };
 })();

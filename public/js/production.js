@@ -103,9 +103,7 @@ RTS.Production = (function () {
     if (item.elapsed >= item.totalTime) {
       q.shift();
       spawnUnit(faction, item.type);
-      if (faction === RTS.state.player) {
-        RTS.UI.toast('训练完成：' + RTS.Unit.typeStats(item.type).name, 'info');
-      }
+      // v7.1：训练完成属普通消息，不再弹 toast
     }
   }
 

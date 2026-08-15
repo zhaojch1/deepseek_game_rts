@@ -19,6 +19,12 @@ RTS.Input = (function () {
 
   const C = () => RTS.CONFIG;
 
+  /** 玩家部队是否正被 AI 接管（接管期间禁止一切手动控制） */
+  function playerAIControlled() {
+    const st = RTS.state;
+    return !!(st && st.playerAI);
+  }
+
   function updateMouseWorld() {
     state.mouseWorld = RTS.Camera.screenToWorld(state.mouseScreen.x, state.mouseScreen.y);
   }
@@ -127,6 +133,7 @@ RTS.Input = (function () {
 
   function onLeftClick(wx, wy, shift) {
     const st = RTS.state;
+    if (playerAIControlled()) return; // AI 接管中：屏蔽选择
     if (state.attackMovePending) {
       state.attackMovePending = false;
       issueAttackMove(wx, wy);
@@ -154,6 +161,7 @@ RTS.Input = (function () {
 
   function onBoxSelect(startWorld, endWorld, shift) {
     const st = RTS.state;
+    if (playerAIControlled()) return; // AI 接管中：屏蔽框选
     const minX = Math.min(startWorld.x, endWorld.x);
     const maxX = Math.max(startWorld.x, endWorld.x);
     const minY = Math.min(startWorld.y, endWorld.y);
@@ -170,6 +178,7 @@ RTS.Input = (function () {
 
   function onRightClick(wx, wy) {
     const st = RTS.state;
+    if (playerAIControlled()) return; // AI 接管中：屏蔽移动/攻击/集结点指令
     // 右键下达移动/攻击指令时，取消待命的攻击移动，避免下次左键误触发
     state.attackMovePending = false;
 
@@ -277,9 +286,11 @@ RTS.Input = (function () {
         }
       }
 
-      if (prodType) RTS.UI.orderProduction(prodType);
-      else if (upper === C().attackMoveKey) state.attackMovePending = true;
-      else if (key === 'Escape') {
+      if (prodType) {
+        if (!playerAIControlled()) RTS.UI.orderProduction(prodType);
+      } else if (upper === C().attackMoveKey) {
+        if (!playerAIControlled()) state.attackMovePending = true;
+      } else if (key === 'Escape') {
         st.selection.clear();
         st.selectedBase = null;
         state.attackMovePending = false;

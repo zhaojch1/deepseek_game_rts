@@ -39,6 +39,7 @@
     <div class="hud-group">
       <span id="hud-ai-source" class="hud-ai-source">AI：规则</span>
     </div>
+    <button id="hud-ai-takeover" class="hud-ai-takeover" title="将玩家部队指挥权交给 AI（再点一次交还）">🤖 AI接管</button>
   </div>
 
   <!-- 选中单位信息 -->
@@ -88,11 +89,31 @@
   <!-- 提示 toast -->
   <div id="toasts" class="toasts"></div>
 
+  <!-- AI 决策消息（左=玩家蓝，右=敌方红，常驻最多 5 条） -->
+  <div id="ai-msg-player" class="ai-messages"></div>
+  <div id="ai-msg-enemy" class="ai-messages"></div>
+
   <!-- 主菜单（选择地图） -->
   <div id="menu" class="menu">
     <div class="menu-box">
       <h1 class="menu-title">DeepSeek Game RTS</h1>
-      <div class="menu-sub">选择地图，开始对局</div>
+      <div class="menu-sub">选择双方 AI 大模型与地图，开始对局</div>
+      <div class="menu-ai-row">
+        <label class="menu-ai-label">玩家 AI</label>
+        <select id="ai-provider-player" class="menu-ai-select">
+          <option value="deepseek" selected>DeepSeek</option>
+          <option value="doubao">豆包</option>
+        </select>
+        <label class="menu-ai-label">敌方 AI</label>
+        <select id="ai-provider-enemy" class="menu-ai-select">
+          <option value="deepseek" selected>DeepSeek</option>
+          <option value="doubao">豆包</option>
+        </select>
+      </div>
+      <label class="menu-check-row" title="开局后玩家部队立即交由 AI 指挥（游戏内可随时点顶部按钮交还）">
+        <input type="checkbox" id="menu-ai-takeover" />
+        <span>开局即由 AI 接管玩家部队</span>
+      </label>
       <div id="map-list" class="map-list"></div>
       <button id="menu-start" class="menu-btn">开始游戏</button>
     </div>

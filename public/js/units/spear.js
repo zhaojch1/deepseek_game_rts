@@ -17,7 +17,7 @@ RTS.Units.register({
   range: 1.4, // 格（设计值，创建时乘 rangeScale）
   attackInterval: 1.2,
   speed: 2.2, // 格/秒（创建时乘 speedScale）
-  trainTime: 2,
+  trainTime: 1, // v7.2：训练时长减半
   radius: 12,
   color: '#4a90d9',
   ranged: false,
@@ -31,7 +31,7 @@ RTS.Units.register({
     desc: '廉价抗线前排，反骑兵',
   },
 
-  doc: '长矛兵（spear）：廉价的前排抗线单位。生命110、攻击16、近战射程1.4、攻速1.2s、移速2.2格/s、成本60、训练2s。克制骑兵（对骑兵伤害×1.6），性价比高，适合前期量产与反制敌方骑兵。',
+  doc: '长矛兵（spear）：廉价的前排抗线单位。生命110、攻击16、近战射程1.4、攻速1.2s、移速2.2格/s、成本60、训练1s。克制骑兵（对骑兵伤害×1.6），性价比高，适合前期量产与反制敌方骑兵。',
 
   draw(ctx, v) {
     const kit = RTS.Units.drawKit;

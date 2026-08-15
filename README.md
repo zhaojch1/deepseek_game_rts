@@ -2,7 +2,7 @@
 
 网页端二维实时策略（RTS）游戏。运行在浏览器中，玩家扮演指挥官，生产古代冷兵器兵种、框选部队、下达移动与攻击指令，占领地图资源点、升级科技，与电脑对手实时对抗。
 
-> 敌方 AI 的战略决策**完全由 DeepSeek 接管**；无 Key / 网络失败时自动降级为极简自动驾驶，游戏始终可玩。
+> 双方 AI 的战略决策**完全由大模型接管**（DeepSeek / 豆包可在主菜单选择）；无 Key / 网络失败时自动降级为极简自动驾驶，游戏始终可玩。游戏内顶部按钮可把玩家部队一键交给 AI 接管。
 
 ---
 
@@ -16,16 +16,23 @@ node server.js
 
 打开后先进入**主菜单**：从地图列表选择一张地图（小地图「河谷三路」/ 中地图「广域河谷」），点击「开始游戏」。对局结束可「再来一局」（同图重开）或「主菜单」（返回重新选图）。
 
-### 启用 DeepSeek AI（可选）
+### 启用大模型 AI（可选）
 
 ```bash
 # Windows: copy .env.example .env
 cp .env.example .env
-# 编辑 .env，设置 DEEPSEEK_API_KEY=sk-...
+# 编辑 .env，设置 DEEPSEEK_API_KEY=sk-...（DeepSeek）与/或 ARK_API_KEY=...（豆包）
 node server.js
 ```
 
-API Key 仅保存在后端，绝不出现在前端。未配置 Key 时自动进入「降级自动驾驶」。
+支持两家大模型供应商，主菜单可分别为「玩家 AI」与「敌方 AI」选择模型：
+
+| 供应商 | 环境变量 | 默认模型 |
+| --- | --- | --- |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` |
+| 豆包（火山方舟 ARK） | `ARK_API_KEY` | `doubao-seed-2-1-turbo-260628` |
+
+API Key 仅保存在后端，绝不出现在前端。某侧未配置 Key 时，该侧自动进入「降级自动驾驶」。
 
 ## 玩法与操作
 
@@ -42,8 +49,13 @@ API Key 仅保存在后端，绝不出现在前端。未配置 Key 时自动进�
 | 空格 | 视角回到基地 |
 | 滚轮 / 方向键 | 缩放 / 平移 |
 | F2 | 切换调试面板（AI 决策来源） |
+| 顶部「AI接管」按钮 | 把玩家部队指挥权交给 AI（再点一次交还） |
 
-> 生产快捷键由各单位定义里的 `hotkey` 字段动态决定，新增单位会自动获得新键位。
+> 生产快捷键由各单位定义里的 `hotkey` 字段动态决定，出兵卡片按键盘顺序（Q/W/E/R/T）排列，新增单位会自动获得新键位并插入对应位置。
+>
+> **AI 决策消息**：双方大模型每次决策会显示在屏幕两侧的常驻消息条（玩家 AI 左侧蓝色、敌方 AI 右侧红色），不会一闪而过；每侧最多保留 5 条，超过后最老的一条慢慢淡出。普通消息（占领资源点、训练完成等）不再弹提示。
+>
+> 主菜单可勾选「开局即由 AI 接管玩家部队」，进入对局立刻进入 AI 指挥模式。
 >
 > 资源点为**持久控制点**：派部队驻守到易主后，即使离开也持续产出；敌方驻守可反夺。科技升级面板位于屏幕左侧（攻击/护甲用木材、城防用石料）。森林为远程减伤掩体，地图中央河流仅桥梁可渡。
 
@@ -51,7 +63,7 @@ API Key 仅保存在后端，绝不出现在前端。未配置 Key 时自动进�
 
 - **单位 skill 化**：每种单位是 `public/js/units/*.js` 下的自包含定义（数值 + 克制 + 标签 + 绘制 + AI 介绍），运行时走 `RTS.Units` 注册表。当前 5 兵种：长矛兵 / 刀盾兵 / 弓箭手 / 弩手 / 骑兵。
 - **地图 skill 化**：每张地图是 `public/js/maps/*.js` 下的自包含定义（尺寸 small/medium/large + 基地 + 通道 + 资源 + 地形生成）。当前 2 张：河谷三路（小）、广域河谷（中）。
-- **DeepSeek 完全接管 AI**：战略状态（`phase`）100% 来自 DeepSeek 的 `stance`/`attackNow`，连续刷新（每 3–6s）；34 种指挥态势作为低层执行器的「指令集」。
+- **大模型完全接管 AI**：战略状态（`phase`）100% 来自所选大模型的 `stance`/`attackNow`，连续刷新（每 3–6s）；34 种指挥态势作为低层执行器的「指令集」。支持 DeepSeek 与豆包两家供应商，主菜单为玩家/敌方分别选择；玩家可随时点顶部按钮把自己的部队交给 AI 接管（AI vs AI），也可在主菜单勾选开局即接管。AI 决策以常驻消息条呈现（玩家左蓝 / 敌方右红，最多 5 条）。
 - **资源 / 科技 / 城堡**：金/木/石三资源 + 持久控制点；攻击/护甲/城防三线科技；城堡四角塔自动射箭守护，可升级。
 - **主菜单选图**：开局前选择地图，新增地图自动出现在菜单里。
 
@@ -62,7 +74,7 @@ deepseek_game_rts/
 ├── 需求文档.md
 ├── README.md
 ├── package.json
-├── server.js                 # 静态服务器 + /api/ai/command 代理 + 动态读取单位/地图定义
+├── server.js                 # 静态服务器 + /api/ai/command 代理（DeepSeek/豆包）+ 动态读取单位/地图定义
 ├── .env.example
 ├── skills/
 │   ├── create_unit.md        # ★ 如何新增单位（详细指南 + 模板）
@@ -91,7 +103,7 @@ deepseek_game_rts/
         ├── production.js     # 经济与生产队列
         ├── resources.js      # 资源占领/木石经济/科技升级/城堡防御
         ├── projectiles.js    # 弓箭/塔箭投射物
-        ├── ai.js             # 敌方 AI（DeepSeek 接管 + 34 态执行器）
+        ├── ai.js             # 指挥官 AI（大模型接管 + 34 态执行器，按阵营参数化，支持玩家/敌方双实例）
         ├── input.js          # 鼠标/键盘/框选
         ├── render.js         # 地形/城堡/箭矢/小地图（单位绘制委托给定义）
         ├── ui.js             # HUD/面板/主菜单（由注册表动态生成）
@@ -155,7 +167,8 @@ Faction = {
 
 ### server.js（后端）
 
-- 静态文件服务（防目录穿越）；`POST /api/ai/command` 转发 DeepSeek；`GET /api/health`。
+- 静态文件服务（防目录穿越）；`POST /api/ai/command` 代理 DeepSeek 与豆包（按请求 `provider` 字段路由，`side` 决定指挥官身份）；`GET /api/health`。
+- 两家供应商的 Key/模型/端点分别来自 `DEEPSEEK_API_KEY`/`ARK_API_KEY` 等环境变量；豆包请求带 `thinking.type=disabled`。
 - `loadDefinitions()`：启动时用 Node `vm` 沙箱求值 `units/*.js` 与 `maps/*.js`，得到单位/地图元信息（剥离 `draw`/`generate`），据此**动态生成系统提示**（注入全部单位/地图 `doc`）并动态得到 `VALID_ARMY_FOCUS`——新增内容后 AI 提示与校验自动跟随。
 - `extractJson` / `clampDecision`：稳健提取并校验 `armyFocus`（动态单位 id）、`stance`（34 态）、`lane`（top/mid/bottom）、`targetFocus`（base/army/econ）、`aggression`、`attackNow`、`comment`。
 
@@ -173,6 +186,7 @@ Faction = {
 
 - `range`/`speed` 是「格」设计值，实际换算在 `RTS.Units.rangePx` 与 `RTS.Unit.create`（`rangeScale=34`/`speedScale=48`）。
 - 保留 `terrainTypes`、`resourceNodes`、`captureSpeed`、`upgrades`、`baseDefense*`、`arrowSpeed`/`towerArrowSpeed`、`coverRangedMul`、AI 节奏、`defaultMap` 等。`worldWidth/worldHeight` getter 从 `RTS.world` 动态取值。
+- **经济节奏（v7.2）**：`baseGoldRate=20`（基础军费 +20/s）、`goldRateGrowthPerMin=0.5`（每 60s +0.5/s）、`goldRateMax=30`；金矿节点 `resourceNodes.gold.income=10`（每占一个金矿 +10/s）。训练时长在各单位定义 `trainTime` 内，当前为 1s（长矛）/ 1.33s（刀盾）/ 1.5s（弓箭）/ 2s（弩手）/ 2s（骑兵）。
 
 ### world.js（通用地图容器）
 
@@ -203,11 +217,13 @@ Faction = {
 - **resources**：资源点持久控制；三线升级；城堡防御从离目标最近的角塔射塔箭（`towerFlash` 闪光）。
 - **projectiles**：实体箭/塔箭，`spawnArrow`/`spawnTowerArrow` 的 `target` 必须是 `{kind, ref}` 包装对象。
 
-### ai.js（敌方 AI）—— DeepSeek 完全接管
+### ai.js（指挥官 AI）—— 大模型完全接管（DeepSeek / 豆包）
 
-- **战略状态 100% 由 DeepSeek 决定**：`applyDecision` 把 `decision.stance` 直接写成当前 `phase`；已移除规则层 `evaluatePhase`。
-- **连续刷新**：开局立即请求，之后每 `aiDecisionIntervalMin~Max`（默认 3–6s）连续刷新。
-- **降级兜底**：仅当 DeepSeek 从未成功（`deepseekEverActive === false`）时走极简 `degradedPilot`（build → rally → all_in，基地受威胁 defend）；一旦接管，规则永不再参与。
+v7 起 AI 控制器按阵营参数化：`RTS.AI.init(owner, provider)`，`owner` 为 `'enemy'`（`RTS.state.ai`，敌方）或 `'player'`（`RTS.state.playerAI`，玩家 AI 接管时存在）。所有内部逻辑通过 `mine(ai)`/`theirs(ai)` 取己方/对方阵营，同一套 34 态执行器可同时驱动双方（AI vs AI）。
+
+- **战略状态 100% 由大模型决定**：`applyDecision` 把 `decision.stance` 直接写成当前 `phase`；已移除规则层 `evaluatePhase`。
+- **连续刷新**：开局立即请求，之后每 `aiDecisionIntervalMin~Max`（默认 3–6s）连续刷新。请求体带 `side`（扮演哪一方）与 `provider`（deepseek | doubao），服务端据此选 API 与指挥官提示词。
+- **降级兜底**：仅当该侧大模型从未成功（`deepseekEverActive === false`）时走极简 `degradedPilot`（build → rally → all_in，基地受威胁 defend）；一旦接管，规则永不再参与。
 - **34 态 `PHASE` 是执行器指令集**（`executePhase` 落地为低层指令，非决策）：
 
 | 类别 | 态势 |
@@ -221,15 +237,20 @@ Faction = {
 | 防守 | defend / defend_choke / defend_node / counter_attack / fallback |
 | 撤退重整 | retreat / regroup / turtle / ambush |
 
-- DeepSeek 决策字段：`armyFocus`（生产侧重，权重 +20）、`aggression`、`stance`（唯一状态来源）、`lane`、`targetFocus`、`attackNow`。
+- 大模型决策字段：`armyFocus`（生产侧重，权重 +20）、`aggression`、`stance`（唯一状态来源）、`lane`、`targetFocus`、`attackNow`。
 - 低层指令**必须节流**（`phaseChanged` + 各 timer），已到位单位跳过，避免「原地反复移动碰撞」。
+- **v7.1 控制精度（像人类一样指挥）**：
+  - 执行器分「普通态势」与「紧急态势」两类收集单位——`freeUnits`（仅空闲）用于经济/地图控制/集结/侦查/骚扰，`recallUnits`（空闲+在途+可选交战）用于防守/撤退/总攻/围城。**普通态势绝不打断在途单位**（正在前往金矿的部队不会被 LLM 换态势时拽回来，杜绝来回横跳）。
+  - `attackLanes` 带 `force` 参数：骚扰/佯攻只调空闲单位，总攻/钳形/防守反击才召回全员。
+  - 决策层态势切换冷却（`aiStanceHoldTime`，默认 10s）：非紧急态势（占金矿↔占木场↔集结等）在冷却内不重复翻转；紧急防守/撤退态势不受限制、立即生效。
+  - `assignAttackMove`/`attackLanes`/`assignSquads` 跳过「已到位」或「正在前往同一目标」的单位，避免状态机反复下令导致的编队抖动；`retreatTo` 带 `force` 参数，撤退/重整/龟缩时连正在交战的单位也会强制脱离战斗后撤；`focusFire` 集火更精确（射程圈内直接攻击、圈外先压上、交战中的单位不打断）。
 - `attackLanes`/`defendChoke`/`scout` 等均从 `RTS.Maps.current().lanes` 读通道；`decideProductionType` 按单位 `ai.weight`/`tags` 动态加权。
 
 ### input.js / render.js / ui.js / main.js
 
-- **input**：框选/单选/右键/攻击移动；生产快捷键由单位 `hotkey` 动态决定；城堡选中 + 右键设集结点；相机方向键平移。
+- **input**：框选/单选/右键/攻击移动；生产快捷键由单位 `hotkey` 动态决定；城堡选中 + 右键设集结点；相机方向键平移。玩家 AI 接管时（`RTS.state.playerAI` 存在）屏蔽一切兵种控制输入。
 - **render**：地形/城堡（逐塔闪光 + 集结点旗帜）/资源/尸体/箭矢/小地图；单位绘制委托 `def.draw(ctx, view)`；小地图**惰性构建**（`RTS.world` 就绪后）。
-- **ui**：HUD、生产面板（按钮由 `RTS.Units.all()` 动态生成）、升级面板、选中信息、toast、结束覆盖层、**主菜单**（地图卡片由 `RTS.Maps.all()` 动态生成）。
+- **ui**：HUD、生产面板（按钮由 `RTS.Units.all()` 动态生成并按键盘顺序排列）、升级面板、选中信息、toast、结束覆盖层、**主菜单**（地图卡片由 `RTS.Maps.all()` 动态生成 + 双方 AI 模型下拉选择 + 「开局即由 AI 接管」勾选 + 顶部 AI 接管按钮）、**AI 决策消息条**（`RTS.UI.aiMessage`：玩家左蓝 / 敌方右红，常驻最多 5 条，超出最老一条淡出；开局/重开时 `clearAIMessages` 清空）。
 - **main**：boot 只做 `UI.init → Render.init → Input.init` 并显示主菜单（不自动开局）；主循环 `if (RTS.state)` 守卫，`running` 阶段固定步长 `STEP=1/60` 模拟 + 实时渲染。
 
 **主循环顺序**：`Production → AI → Combat.rebuildHash → Resources.captureUpdate → Resources.incomeUpdate → Resources.baseDefenseUpdate → units → Projectiles.update → separation → damageNumbers → corpses → checkEnd`。
@@ -245,8 +266,11 @@ Faction = {
 6. **AI 低层指令必须节流**：否则重现「集结后原地反复移动碰撞」。
 7. **伤害结算统一走 `Combat.applyUnitDamage`**，才能正确吃到克制/掩体/护甲。
 8. **资源点是持久控制点**：易主后离开不回退，仅敌方驻守可反夺。
-9. **`.env` 绝不提交**；服务端超时 8s；DeepSeek 只在 `phase==='running'` 时调用。
+9. **`.env` 绝不提交**；服务端超时默认 20s（`AI_TIMEOUT_MS` 可覆盖）；大模型只在 `phase==='running'` 时调用。
 10. **主菜单阶段 `RTS.world`/`RTS.state` 为空**：渲染/输入初始化不要读它们（小地图已改为惰性构建，键盘已加守卫）。
+11. **玩家 AI 接管**：`RTS.state.playerAI` 非空即接管，`RTS.AI.updateAll` 每帧同时驱动双方；接管期间 `input.js` 会屏蔽全部兵种控制，出兵/升级按钮也会禁用。
+12. **AI 消息条淡出**：超出 5 条时给最老一条加 `fading` 类并等 `transitionend` 后移除（含 2.2s 兜底定时器），**不要同步移除**——否则淡出动画失效，且 `while` 循环会因节点未立即移除而死循环。
+13. **不要在普通态势打断在途单位**：新增低层指令入口时按「空闲单位 vs 强制召回」分类（`freeUnits`/`recallUnits`），普通经济/地图控制态势只调动空闲单位，否则会重现「占金矿→换态势→部队被拽回来」的来回横跳。可用 `node tools/ai_commit_test.js` 回归验证。
 
 ## 5. 扩展指南
 
@@ -263,3 +287,6 @@ Faction = {
 - **v4**：单位/地图 skill 化（自包含定义 + 注册表）+ DeepSeek 动态读取定义生成提示与校验 + `tools/build_intro.js` 介绍文件。
 - **v5**：训练时间缩短为 1/3 + AI 状态完全由 DeepSeek 接管（连续刷新）。
 - **v6**：新增中地图「广域河谷」+ 主菜单地图选择 + 新单位「弩手」。
+- **v7**：AI 控制器按阵营参数化（`RTS.AI.init(owner, provider)`）+ 主菜单可选玩家/敌方 AI 大模型（DeepSeek / 豆包）+ 顶部「AI接管」按钮（玩家部队可交给 AI，AI vs AI）+ 出兵卡片按键盘顺序排列 + 服务端超时放宽至 20s。
+- **v7.1**：AI 决策消息常驻条（玩家左蓝 / 敌方右红，最多 5 条，超出最老淡出，普通消息不再弹提示）+ 主菜单「开局即由 AI 接管」勾选 + AI 控制精度优化（重复下令去抖、撤退/龟缩强制脱离战斗、集火更精确）。
+- **v7.2**：节奏调爽——基础军费 +20/s（每 60s 再 +0.5/s，上限 30）、每个占领金矿 +10/s、全部单位训练时长减半（`public/js/units/*.js` 的 `trainTime`）。

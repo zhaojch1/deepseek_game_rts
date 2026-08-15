@@ -51,7 +51,12 @@ const PORT = Number(process.env.PORT) || 3000;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const DEEPSEEK_ENDPOINT = process.env.DEEPSEEK_ENDPOINT || 'https://api.deepseek.com/chat/completions';
-const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 8000;
+const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 20000;
+
+// 豆包（火山方舟 ARK）—— v7 新增的第二家大模型供应商
+const ARK_API_KEY = process.env.ARK_API_KEY || '';
+const ARK_MODEL = process.env.ARK_MODEL || 'doubao-seed-2-1-turbo-260628';
+const ARK_ENDPOINT = process.env.ARK_ENDPOINT || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 
 // ---------------------------------------------------------------- 单位/地图定义（供 AI 决策用）
 
@@ -194,7 +199,7 @@ function sendJson(res, status, obj) {
   res.end(body);
 }
 
-// ---------------------------------------------------------------- DeepSeek 调用
+// ---------------------------------------------------------------- LLM 调用（DeepSeek / 豆包）
 
 /**
  * 从模型返回的 content 中尽量稳健地提取一个 JSON 对象。
@@ -273,42 +278,59 @@ function clampDecision(decision) {
   return { armyFocus, aggression, attackNow, stance, lane, targetFocus, comment };
 }
 
-function callDeepSeek(payload) {
+/**
+ * 构建指挥官系统提示。side: 'player' | 'enemy'，决定 AI 扮演哪一方的指挥官。
+ */
+function buildSystemPrompt(side) {
+  const who = side === 'player' ? '玩家方' : '敌方';
+  return (
+    '你是 RTS 游戏的' + who + '指挥官。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
+    '【可用兵种】(armyFocus 只能取下列单位 id 之一)：\n' + UNITS_INTRO + '\n\n' +
+    '【可选地图】：\n' + MAPS_INTRO + '\n\n' +
+    '【JSON 字段】(除 comment 外都可省略)：' +
+    'armyFocus(兵种倾向，取上面兵种 id 之一)、' +
+    'aggression(0-100 进攻倾向)、' +
+    'attackNow(布尔，是否立即总攻)、' +
+    'stance(指定态势，可选 build/boom/tech/eco_defend/scout/scout_hold/counter_scout/' +
+    'capture_gold/capture_wood/capture_stone/capture_expand/node_garrison/' +
+    'rally/rally_hold/reinforce/harass/harass_flank/harass_econ/' +
+    'assault_mid/assault_top/assault_bottom/all_in/pincer/feint/siege/' +
+    'defend/defend_choke/defend_node/counter_attack/fallback/retreat/regroup/turtle/ambush 之一)、' +
+    'lane(主攻方向，top/mid/bottom 之一)、' +
+    'targetFocus(目标侧重，base/army/econ 之一)、' +
+    'comment(不超过30字说明)。'
+  );
+}
+
+/**
+ * 调用大模型取得指挥官决策。provider: 'deepseek' | 'doubao'。
+ * 豆包走火山方舟 ARK 的 OpenAI 兼容接口（附 thinking.type=disabled 关闭思考）。
+ */
+function callLLM(payload, provider) {
+  const isDoubao = provider === 'doubao';
+  const apiKey = isDoubao ? ARK_API_KEY : DEEPSEEK_API_KEY;
+  const model = isDoubao ? ARK_MODEL : DEEPSEEK_MODEL;
+  const endpoint = new URL(isDoubao ? ARK_ENDPOINT : DEEPSEEK_ENDPOINT);
+  const side = payload && payload.side === 'player' ? 'player' : 'enemy';
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: buildSystemPrompt(side) },
+      {
+        role: 'user',
+        content:
+          '当前地图：' + (payload && payload.map && DEFS.maps.has(payload.map)
+            ? (DEFS.maps.get(payload.map).doc || payload.map)
+            : '未知') +
+          '\n战场状态：' + JSON.stringify(payload),
+      },
+    ],
+    stream: false,
+  };
+  if (isDoubao) body.thinking = { type: 'disabled' };
+
   return new Promise((resolve, reject) => {
-    const endpoint = new URL(DEEPSEEK_ENDPOINT);
-    const body = JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是 RTS 游戏的敌方指挥官。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
-            '【可用兵种】(armyFocus 只能取下列单位 id 之一)：\n' + UNITS_INTRO + '\n\n' +
-            '【可选地图】：\n' + MAPS_INTRO + '\n\n' +
-            '【JSON 字段】(除 comment 外都可省略)：' +
-            'armyFocus(兵种倾向，取上面兵种 id 之一)、' +
-            'aggression(0-100 进攻倾向)、' +
-            'attackNow(布尔，是否立即总攻)、' +
-            'stance(指定态势，可选 build/boom/tech/eco_defend/scout/scout_hold/counter_scout/' +
-            'capture_gold/capture_wood/capture_stone/capture_expand/node_garrison/' +
-            'rally/rally_hold/reinforce/harass/harass_flank/harass_econ/' +
-            'assault_mid/assault_top/assault_bottom/all_in/pincer/feint/siege/' +
-            'defend/defend_choke/defend_node/counter_attack/fallback/retreat/regroup/turtle/ambush 之一)、' +
-            'lane(主攻方向，top/mid/bottom 之一)、' +
-            'targetFocus(目标侧重，base/army/econ 之一)、' +
-            'comment(不超过30字说明)。',
-        },
-        {
-          role: 'user',
-          content:
-            '当前地图：' + (payload && payload.map && DEFS.maps.has(payload.map)
-              ? (DEFS.maps.get(payload.map).doc || payload.map)
-              : '未知') +
-            '\n战场状态：' + JSON.stringify(payload),
-        },
-      ],
-      stream: false,
-    });
+    const jsonBody = JSON.stringify(body);
 
     const req = https.request(
       {
@@ -318,8 +340,8 @@ function callDeepSeek(payload) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-          Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+          'Content-Length': Buffer.byteLength(jsonBody),
+          Authorization: `Bearer ${apiKey}`,
         },
       },
       (res) => {
@@ -337,7 +359,7 @@ function callDeepSeek(payload) {
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
           if (res.statusCode !== 200) {
-            reject(new Error(`deepseek http ${res.statusCode}: ${text.slice(0, 300)}`));
+            reject(new Error(`${provider} http ${res.statusCode}: ${text.slice(0, 300)}`));
             return;
           }
           try {
@@ -357,7 +379,7 @@ function callDeepSeek(payload) {
     req.setTimeout(AI_TIMEOUT_MS, () => {
       req.destroy(new Error('timeout'));
     });
-    req.write(body);
+    req.write(jsonBody);
     req.end();
   });
 }
@@ -365,10 +387,6 @@ function callDeepSeek(payload) {
 // ---------------------------------------------------------------- 路由
 
 async function handleAiCommand(req, res) {
-  if (!DEEPSEEK_API_KEY) {
-    sendJson(res, 200, { ok: false, reason: 'no_key', message: '未配置 DEEPSEEK_API_KEY，使用规则 AI' });
-    return;
-  }
   let payload;
   try {
     payload = await readJsonBody(req);
@@ -376,9 +394,16 @@ async function handleAiCommand(req, res) {
     sendJson(res, 400, { ok: false, reason: 'bad_request', message: String(e.message) });
     return;
   }
+  const provider = payload && payload.provider === 'doubao' ? 'doubao' : 'deepseek';
+  const apiKey = provider === 'doubao' ? ARK_API_KEY : DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    const envName = provider === 'doubao' ? 'ARK_API_KEY' : 'DEEPSEEK_API_KEY';
+    sendJson(res, 200, { ok: false, reason: 'no_key', message: `未配置 ${envName}，使用规则 AI` });
+    return;
+  }
   try {
-    const decision = await callDeepSeek(payload);
-    sendJson(res, 200, { ok: true, decision, source: 'deepseek' });
+    const decision = await callLLM(payload, provider);
+    sendJson(res, 200, { ok: true, decision, source: provider });
   } catch (e) {
     // 超时/失败/非法 → 降级，不报错中断
     const msg = String(e && e.message ? e.message : e);
@@ -399,6 +424,8 @@ const server = http.createServer((req, res) => {
       ok: true,
       hasKey: !!DEEPSEEK_API_KEY,
       model: DEEPSEEK_MODEL,
+      hasArkKey: !!ARK_API_KEY,
+      arkModel: ARK_MODEL,
     });
     return;
   }
@@ -413,5 +440,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => {
   console.log(`[RTS] DeepSeek Game RTS 服务器已启动`);
   console.log(`[RTS] 访问地址：http://localhost:${PORT}`);
-  console.log(`[RTS] DeepSeek AI：${DEEPSEEK_API_KEY ? '已配置 (' + DEEPSEEK_MODEL + ')' : '未配置（纯规则 AI 模式）'}`);
+  console.log(`[RTS] DeepSeek AI：${DEEPSEEK_API_KEY ? '已配置 (' + DEEPSEEK_MODEL + ')' : '未配置（该侧降级为规则 AI）'}`);
+  console.log(`[RTS] 豆包(ARK) AI：${ARK_API_KEY ? '已配置 (' + ARK_MODEL + ')' : '未配置（该侧降级为规则 AI）'}`);
 });

@@ -16,7 +16,7 @@ RTS.Units.register({
   range: 1.0,
   attackInterval: 1.0,
   speed: 2.0,
-  trainTime: 2.67,
+  trainTime: 1.33, // v7.2：训练时长减半
   radius: 13,
   color: '#8a6bd9',
   ranged: false,
@@ -30,7 +30,7 @@ RTS.Units.register({
     desc: '高生命肉盾，克长矛与弓箭',
   },
 
-  doc: '刀盾兵（sword）：高生命肉盾单位。生命150、攻击13、近战射程1.0、攻速1.0s、移速2.0格/s、成本70、训练约2.7s。克制长矛兵（×1.2）与弓箭手（×1.3），但被骑兵冲击克制（对骑兵×0.8）。适合前排吸收伤害。',
+  doc: '刀盾兵（sword）：高生命肉盾单位。生命150、攻击13、近战射程1.0、攻速1.0s、移速2.0格/s、成本70、训练约1.3s。克制长矛兵（×1.2）与弓箭手（×1.3），但被骑兵冲击克制（对骑兵×0.8）。适合前排吸收伤害。',
 
   draw(ctx, v) {
     const kit = RTS.Units.drawKit;

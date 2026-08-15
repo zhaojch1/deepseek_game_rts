@@ -16,7 +16,7 @@ RTS.Units.register({
   range: 5.5,
   attackInterval: 1.4,
   speed: 2.0,
-  trainTime: 3,
+  trainTime: 1.5, // v7.2：训练时长减半
   radius: 11,
   color: '#d9a03a',
   ranged: true,
@@ -30,7 +30,7 @@ RTS.Units.register({
     desc: '远程输出，脆皮',
   },
 
-  doc: '弓箭手（archer）：远程输出单位。生命70、攻击13、远程射程5.5格、攻速1.4s、移速2.0格/s、成本80、训练3s。对刀盾兵伤害×0.7（盾牌减伤）。射程远可风筝近战，但脆皮、被骑兵快速切入克制。建议置于后排输出。',
+  doc: '弓箭手（archer）：远程输出单位。生命70、攻击13、远程射程5.5格、攻速1.4s、移速2.0格/s、成本80、训练1.5s。对刀盾兵伤害×0.7（盾牌减伤）。射程远可风筝近战，但脆皮、被骑兵快速切入克制。建议置于后排输出。',
 
   draw(ctx, v) {
     const kit = RTS.Units.drawKit;

@@ -16,7 +16,7 @@ RTS.Units.register({
   range: 1.0,
   attackInterval: 1.5,
   speed: 4.2,
-  trainTime: 4,
+  trainTime: 2, // v7.2：训练时长减半
   radius: 14,
   color: '#d95a5a',
   ranged: false,
@@ -30,7 +30,7 @@ RTS.Units.register({
     desc: '高速高攻突击，克弓箭与刀盾',
   },
 
-  doc: '骑兵（cavalry）：高速高攻突击单位。生命130、攻击20、近战射程1.0、攻速1.5s、移速4.2格/s（全场最快）、成本120、训练4s。克制弓箭手（×1.5）与刀盾兵（×1.1），但被长矛兵的反骑兵加成克制（对长矛×0.7）。适合快速支援、切后排与劫掠。',
+  doc: '骑兵（cavalry）：高速高攻突击单位。生命130、攻击20、近战射程1.0、攻速1.5s、移速4.2格/s（全场最快）、成本120、训练2s。克制弓箭手（×1.5）与刀盾兵（×1.1），但被长矛兵的反骑兵加成克制（对长矛×0.7）。适合快速支援、切后排与劫掠。',
 
   draw(ctx, v) {
     const kit = RTS.Units.drawKit;

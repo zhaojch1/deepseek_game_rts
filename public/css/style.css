@@ -114,6 +114,29 @@ body {
   color: #6ee7a0;
 }
 
+.hud-ai-takeover {
+  pointer-events: auto;
+  font-size: 12px;
+  color: var(--text);
+  background: linear-gradient(180deg, #1a2233, #101623);
+  border: 1px solid #2a3550;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.hud-ai-takeover:hover {
+  border-color: #4a6aa8;
+}
+
+.hud-ai-takeover.active {
+  border-color: #6ee7a0;
+  color: #6ee7a0;
+  background: linear-gradient(180deg, #17301f, #0f1a14);
+}
+
 /* ---------------------------------------------------------------- 选中面板 */
 .selection-panel {
   position: fixed;
@@ -405,6 +428,82 @@ body {
   }
 }
 
+/* ---------------------------------------------------------------- AI 决策消息（v7.1）
+   玩家 AI 在左侧（蓝），敌方 AI 在右侧（红）；常驻不自动消失，每侧最多 5 条，
+   超过后最老的一条慢慢淡出。 */
+.ai-messages {
+  position: fixed;
+  top: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(320px, 34vw);
+  pointer-events: none;
+  z-index: 15;
+}
+
+#ai-msg-player {
+  left: 16px;
+  align-items: flex-start;
+}
+
+#ai-msg-enemy {
+  right: 16px;
+  align-items: flex-end;
+}
+
+.ai-msg {
+  padding: 6px 10px;
+  background: var(--hud-bg);
+  border: 1px solid var(--hud-border);
+  border-left: 3px solid var(--player);
+  border-radius: 8px;
+  max-width: 100%;
+  animation: ai-msg-in 0.25s ease;
+}
+
+.ai-msg.enemy {
+  border-left-color: var(--enemy);
+  text-align: right;
+}
+
+.ai-msg-head {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.ai-msg.player .ai-msg-head {
+  color: #7cc0ff;
+}
+
+.ai-msg.enemy .ai-msg-head {
+  color: #ff8a8a;
+}
+
+.ai-msg-body {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.ai-msg.fading {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 1.4s ease, transform 1.4s ease;
+}
+
+@keyframes ai-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ---------------------------------------------------------------- 结束覆盖层 */
 .overlay {
   position: fixed;
@@ -518,6 +617,54 @@ body {
   font-size: 14px;
   color: var(--text-dim);
   margin-bottom: 18px;
+}
+
+.menu-ai-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.menu-ai-label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.menu-ai-select {
+  background: #101623;
+  color: var(--text);
+  border: 1px solid #2a3550;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+}
+
+.menu-ai-select:hover {
+  border-color: #4a6aa8;
+}
+
+.menu-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: -6px 0 16px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.menu-check-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gold);
+  cursor: pointer;
 }
 
 .map-list {
