@@ -97,6 +97,7 @@ RTS.Match = (function () {
     RTS.state = createState();
     RTS.UI.hideOverlay();
     RTS.Camera.init();
+    RTS.UI.toast('派部队占领金/木/石资源点，占领后持续产出', 'info');
   }
 
   return { start, restart, checkEnd, createState, updateAllUnits };

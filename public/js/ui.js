@@ -151,6 +151,8 @@ RTS.UI = (function () {
       const cost = RTS.Resources.upgradeCost(player, track);
       const levelEl = btn.querySelector('.upg-level');
       const costEl = btn.querySelector('.upg-cost');
+      const descEl = btn.querySelector('.upg-desc');
+      if (descEl) descEl.textContent = cfg.desc || '';
       levelEl.textContent = `${lvl}/${RTS.CONFIG.upgradeMaxLevel}`;
       if (cost === null) {
         costEl.textContent = '已满级';

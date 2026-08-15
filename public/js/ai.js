@@ -316,7 +316,7 @@ RTS.AI = (function () {
     });
   }
 
-  /** 分派少量部队去占领未控制的资源点（地图控制，而非一波流） */
+  /** 分派小队去占领未控制的资源点（多队并行，地图控制而非一波流） */
   function captureNodes(ai) {
     const st = RTS.state;
     if (!st.resources) return;
@@ -324,16 +324,21 @@ RTS.AI = (function () {
     if (nodes.length === 0) return;
     nodes.sort((a, b) => RTS.Unit.distTo(a, st.enemy.base.x, st.enemy.base.y) - RTS.Unit.distTo(b, st.enemy.base.x, st.enemy.base.y));
 
-    let squad = 0;
-    const target = nodes[0];
+    const targets = nodes.slice(0, 3);
+    const perSquad = 3;
+    const assigned = new Map();
     st.enemy.units.forEach((u) => {
-      if (squad >= 4) return;
       if (u.state !== 'idle') return;
-      // 已在节点附近驻守的单位不再重复下令
-      if (Math.hypot(u.x - target.x, u.y - target.y) < target.radius * 0.7) return;
-      const off = rallySlots(4)[squad];
-      RTS.Unit.orderAttackMove(u, target.x + off.x * 0.5, target.y + off.y * 0.5);
-      squad++;
+      for (const target of targets) {
+        const n = assigned.get(target) || 0;
+        if (n >= perSquad) continue;
+        // 已在节点附近驻守的单位不再重复下令
+        if (Math.hypot(u.x - target.x, u.y - target.y) < target.radius * 0.7) continue;
+        const off = rallySlots(perSquad)[n];
+        RTS.Unit.orderAttackMove(u, target.x + off.x * 0.5, target.y + off.y * 0.5);
+        assigned.set(target, n + 1);
+        break;
+      }
     });
   }
 

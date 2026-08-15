@@ -109,9 +109,9 @@ RTS.Combat = (function () {
     if (isRanged && RTS.World.isCoverPx(t.x, t.y)) {
       dmg = Math.floor(dmg * C().coverRangedMul);
     }
-    // 护甲升级：固定减伤
+    // 护甲升级：百分比减伤（每级 -pct，最多 3 级）
     const armorLvl = (RTS.state[t.owner].upgrades && RTS.state[t.owner].upgrades.armor) || 0;
-    dmg -= armorLvl * C().upgrades.armor.flat;
+    if (armorLvl > 0) dmg = Math.floor(dmg * (1 - armorLvl * C().upgrades.armor.pct));
     if (dmg < 1) dmg = 1;
     RTS.Unit.damage(t, dmg);
     spawnDamageNumber(t.x, t.y, dmg, mul > 1 ? '#ffd24e' : mul < 1 ? '#9fb0c8' : '#ffffff');

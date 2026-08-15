@@ -181,8 +181,7 @@ RTS.World = (function () {
         y: p.y,
         radius: Cfg.resourceNodes[type].radius,
         owner: 'neutral',
-        playerWeight: 0,
-        enemyWeight: 0,
+        control: 0, // -1..1：+ 为玩家、- 为敌方、0 中立；易主后保持，不会因离开而回退
       });
     }
 

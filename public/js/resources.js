@@ -7,7 +7,8 @@
  *   - 金币 gold：被动增长 + 金矿节点，用于生产单位。
  *   - 木材 wood：伐木场节点产出，用于攻击/护甲升级。
  *   - 石料 stone：采石场节点产出，用于城防（箭塔）升级。
- * 节点通过「单位在场」逐步占领，鼓励地图控制而非一波流。
+ * 节点采用「持久控制点」模型：单位驻守推动控制值（-1..1），越过阈值即易主；
+ * 易主后即使部队离开也保持归属，只有敌方驻守才能反夺。鼓励地图控制而非一波流。
  */
 
 RTS.Resources = (function () {
@@ -64,6 +65,8 @@ RTS.Resources = (function () {
     const st = RTS.state;
     if (!st.resources) return;
     const rate = C().captureSpeed * dt;
+    const th = C().captureThreshold;
+
     for (const node of st.resources.nodes) {
       const nearby = RTS.Combat.query(node.x, node.y, node.radius);
       let pc = 0;
@@ -74,21 +77,24 @@ RTS.Resources = (function () {
         else ec++;
       }
 
+      // 一方独在 → 控制值向该方移动；双方同在（争夺）或无人（已占）→ 保持
       if (pc > 0 && ec === 0) {
-        node.playerWeight = Math.min(1, node.playerWeight + rate);
-        node.enemyWeight = Math.max(0, node.enemyWeight - rate);
+        node.control = Math.min(1, node.control + rate);
       } else if (ec > 0 && pc === 0) {
-        node.enemyWeight = Math.min(1, node.enemyWeight + rate);
-        node.playerWeight = Math.max(0, node.playerWeight - rate);
-      } else if (pc === 0 && ec === 0) {
-        // 无人驻守：权重缓慢回落（已易主节点保持一定粘性）
-        node.playerWeight = Math.max(0, node.playerWeight - rate * 0.4);
-        node.enemyWeight = Math.max(0, node.enemyWeight - rate * 0.4);
+        node.control = Math.max(-1, node.control - rate);
       }
 
-      if (node.playerWeight >= 1) node.owner = 'player';
-      else if (node.enemyWeight >= 1) node.owner = 'enemy';
-      else node.owner = 'neutral';
+      const prev = node.owner;
+      node.owner = node.control >= th ? 'player' : node.control <= -th ? 'enemy' : 'neutral';
+
+      // 归属变化时给玩家反馈
+      if (node.owner !== prev) {
+        if (node.owner === 'player') {
+          RTS.UI && RTS.UI.toast('已占领' + (C().resourceNodes[node.type].label || node.type), 'info');
+        } else if (prev === 'player') {
+          RTS.UI && RTS.UI.toast('资源点失守：' + (C().resourceNodes[node.type].label || node.type), 'warn');
+        }
+      }
     }
   }
 

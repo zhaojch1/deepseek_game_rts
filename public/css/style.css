@@ -275,11 +275,11 @@ body {
 .upg-btn {
   display: grid;
   grid-template-columns: 22px 1fr auto;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   column-gap: 6px;
   row-gap: 2px;
   align-items: center;
-  min-width: 158px;
+  min-width: 168px;
   padding: 7px 10px;
   background: linear-gradient(180deg, #1a2233, #101623);
   border: 1px solid #2a3550;
@@ -306,7 +306,7 @@ body {
 
 .upg-icon {
   grid-column: 1;
-  grid-row: 1 / 3;
+  grid-row: 1 / 4;
   font-size: 20px;
 }
 
@@ -317,16 +317,23 @@ body {
   font-weight: 600;
 }
 
+.upg-desc {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  font-size: 10px;
+  color: #8fa3c2;
+}
+
 .upg-level {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 3;
   font-size: 11px;
   color: var(--text-dim);
 }
 
 .upg-cost {
   grid-column: 3;
-  grid-row: 2;
+  grid-row: 3;
   font-size: 11px;
   color: var(--gold);
 }

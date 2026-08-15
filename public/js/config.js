@@ -125,19 +125,20 @@ RTS.CONFIG = {
 
   // ---------------------------------------------------------------- 资源（金 / 木 / 石）
   resourceNodes: {
-    gold: { income: 2.2, radius: 110, color: '#f2c14e' },
-    wood: { income: 1.4, radius: 110, color: '#7fc97f' },
-    stone: { income: 1.0, radius: 110, color: '#9fb0c8' },
+    gold: { income: 2.5, radius: 110, color: '#f2c14e', label: '金矿' },
+    wood: { income: 2.5, radius: 110, color: '#7fc97f', label: '伐木场' },
+    stone: { income: 2.2, radius: 110, color: '#9fb0c8', label: '采石场' },
   },
   resourceCap: 999, // 木/石上限
-  captureSpeed: 0.8, // 占领权重变化 / 秒（需累积到 1 才易主）
+  captureSpeed: 0.8, // 占领控制值变化 / 秒
+  captureThreshold: 0.5, // 控制值越过 ±threshold 即易主（-1..1）
 
   // ---------------------------------------------------------------- 升级
   upgradeMaxLevel: 3,
   upgrades: {
-    attack: { name: '军备锻造', resource: 'wood', costs: [120, 220, 340], mul: 0.15 },
-    armor: { name: '铁甲研究', resource: 'wood', costs: [100, 180, 280], flat: 2 },
-    defense: { name: '城防工事', resource: 'stone', costs: [150, 260, 400], hpBonus: 700, arrowsPerLevel: 1 },
+    attack: { name: '军备锻造', resource: 'wood', costs: [100, 180, 280], mul: 0.18, desc: '全体攻击 +18%/级' },
+    armor: { name: '铁甲研究', resource: 'wood', costs: [80, 150, 240], pct: 0.10, desc: '受到伤害 -10%/级' },
+    defense: { name: '城防工事', resource: 'stone', costs: [120, 220, 340], hpBonus: 900, arrowsPerLevel: 1, desc: '箭塔+1支/级，耐久+900/级' },
   },
 
   // ---------------------------------------------------------------- 基地防御（城堡箭塔）
@@ -145,7 +146,7 @@ RTS.CONFIG = {
   baseDefenseDamage: 14, // 单支塔箭基础伤害
   baseDefenseInterval: 1.4, // 每轮箭雨间隔（秒）
   baseDefenseArrows: 2, // 每轮基础箭数
-  baseDefenseDamagePerLevel: 0.35, // 每级城防提升的塔箭伤害倍率
+  baseDefenseDamagePerLevel: 0.4, // 每级城防提升的塔箭伤害倍率
 
   // ---------------------------------------------------------------- 投射物
   arrowSpeed: 540, // 弓箭飞行速度 px/s

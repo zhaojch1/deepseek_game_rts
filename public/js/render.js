@@ -668,14 +668,21 @@ RTS.Render = (function () {
       ctx.arc(node.x, node.y, r + 8, 0, Math.PI * 2);
       ctx.stroke();
 
-      // 占领进度弧
-      const weight = Math.max(node.playerWeight, node.enemyWeight);
-      if (weight > 0 && node.owner === 'neutral') {
-        ctx.strokeStyle = node.playerWeight > node.enemyWeight ? '#4aa8ff' : '#ff5a5a';
+      // 占领进度弧（control ∈ -1..1，展示控制强度与方向）
+      const ctrl = node.control || 0;
+      if (ctrl !== 0) {
+        ctx.strokeStyle = ctrl > 0 ? '#4aa8ff' : '#ff5a5a';
         ctx.lineWidth = 4 / z;
         ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 14, -Math.PI / 2, -Math.PI / 2 + weight * Math.PI * 2);
+        ctx.arc(node.x, node.y, r + 14, -Math.PI / 2, -Math.PI / 2 + Math.abs(ctrl) * Math.PI * 2);
         ctx.stroke();
+      }
+      // 已归属节点加填充标记
+      if (node.owner !== 'neutral') {
+        ctx.fillStyle = ownerColor;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 4, 0, Math.PI * 2);
+        ctx.fill();
       }
 
       // 节点底座
