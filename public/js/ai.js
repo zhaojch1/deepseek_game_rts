@@ -57,20 +57,23 @@ RTS.AI = (function () {
 
   function decideProductionType(ai, playerArmy) {
     const weights = { spear: 1, sword: 1, archer: 1, cavalry: 1 };
-    // 找到玩家数量最多的兵种并反制
-    let dominant = 'spear';
-    let max = -1;
-    for (const t of ['spear', 'sword', 'archer', 'cavalry']) {
-      if (playerArmy[t] > max) {
-        max = playerArmy[t];
-        dominant = t;
-      }
-    }
-    weights[counterOf(dominant)] += 4;
-    // DeepSeek 指挥官倾向
+
+    // DeepSeek 指挥官倾向：明确指定则高优先级执行（远高于规则反制）
     if (ai.strategy.armyFocus) {
-      weights[ai.strategy.armyFocus] += 3;
+      weights[ai.strategy.armyFocus] += 20;
+    } else {
+      // 无 DeepSeek 决策时，规则层：找到玩家数量最多的兵种并反制
+      let dominant = 'spear';
+      let max = -1;
+      for (const t of ['spear', 'sword', 'archer', 'cavalry']) {
+        if (playerArmy[t] > max) {
+          max = playerArmy[t];
+          dominant = t;
+        }
+      }
+      weights[counterOf(dominant)] += 4;
     }
+
     // 少量随机扰动，避免过于死板
     const types = Object.keys(weights);
     const totalW = types.reduce((s, t) => s + weights[t], 0);
@@ -79,7 +82,7 @@ RTS.AI = (function () {
       r -= weights[t];
       if (r <= 0) return t;
     }
-    return 'sword';
+    return ai.strategy.armyFocus || 'sword';
   }
 
   function produce(ai) {

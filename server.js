@@ -48,9 +48,9 @@ loadEnvFile(path.join(ROOT, '.env'));
 
 const PORT = Number(process.env.PORT) || 3000;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const DEEPSEEK_ENDPOINT = process.env.DEEPSEEK_ENDPOINT || 'https://api.deepseek.com/chat/completions';
-const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 5000;
+const AI_TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS) || 8000;
 
 // ---------------------------------------------------------------- 静态文件
 
@@ -219,8 +219,6 @@ function callDeepSeek(payload) {
           content: JSON.stringify(payload),
         },
       ],
-      thinking: { type: 'enabled' },
-      reasoning_effort: 'high',
       stream: false,
     });
 
