@@ -134,22 +134,33 @@ RTS.Input = (function () {
     const sel = selectedUnits();
     if (sel.length === 0) return;
     markOrder(wx, wy, '#6ee7a0');
-    const offs = formationOffsets(sel.length);
-    sel.forEach((u, i) => {
-      RTS.Unit.clearMicro(u); // v10：玩家手动下令覆盖 AI 微指令
-      RTS.Unit.orderMove(u, wx + offs[i].x, wy + offs[i].y);
-    });
+    // v12：玩家移动指令使用编队系统——按角色分层定位（近战前排/远程后排/骑兵侧翼）
+    for (const u of sel) RTS.Unit.clearMicro(u); // v10：玩家手动下令覆盖 AI 微指令
+    if (RTS.Formations) {
+      RTS.Formations.formationAttackMove(sel, wx, wy, {
+        useAttackMove: false,
+        arriveDelay: true,
+      });
+    } else {
+      // 兜底：formations.js 未加载时走旧逻辑
+      const offs = formationOffsets(sel.length);
+      sel.forEach((u, i) => { RTS.Unit.orderMove(u, wx + offs[i].x, wy + offs[i].y); });
+    }
   }
 
   function issueAttackMove(wx, wy) {
     const sel = selectedUnits();
     if (sel.length === 0) return;
     markOrder(wx, wy, '#ff5a5a');
-    const offs = formationOffsets(sel.length);
-    sel.forEach((u, i) => {
-      RTS.Unit.clearMicro(u); // v10
-      RTS.Unit.orderAttackMove(u, wx + offs[i].x, wy + offs[i].y);
-    });
+    // v12：玩家攻击移动使用编队系统
+    for (const u of sel) RTS.Unit.clearMicro(u); // v10
+    if (RTS.Formations) {
+      RTS.Formations.formationAttackMove(sel, wx, wy, { arriveDelay: true });
+    } else {
+      // 兜底：formations.js 未加载时走旧逻辑
+      const offs = formationOffsets(sel.length);
+      sel.forEach((u, i) => { RTS.Unit.orderAttackMove(u, wx + offs[i].x, wy + offs[i].y); });
+    }
   }
 
   function issueAttackUnit(enemyUnit) {

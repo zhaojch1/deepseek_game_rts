@@ -176,8 +176,12 @@ RTS.Match = (function () {
       while (acc >= STEP) {
         if (RTS.state.phase === 'running') {
           RTS.state.time += STEP;
+          // v12：编队系统——清空角色缓存（每帧重建）
+          if (RTS.Formations) RTS.Formations.clearCache();
           RTS.Production.update(STEP);
           RTS.AI.updateAll(STEP);
+          // v12：编队速度同步——让前队减速等后队（在 rebuildHash 之前，单位 update 之前）
+          if (RTS.Formations) RTS.Formations.syncFormationSpeed();
           RTS.Combat.rebuildHash();
           RTS.Resources.captureUpdate(STEP);
           RTS.Resources.incomeUpdate(STEP);
@@ -192,6 +196,10 @@ RTS.Match = (function () {
           RTS.Match.updateAllUnits(STEP);
           RTS.Projectiles.update(STEP);
           RTS.Combat.applySeparation();
+          // v12：编队增强分离（跨角色额外间距，防止兵种堆叠）
+          if (RTS.Formations) RTS.Formations.applyFormationSeparation();
+          // v12：编队凝聚力——空闲单位自动向理想位置漂移（排好阵型）
+          if (RTS.Formations) RTS.Formations.applyCohesion();
           RTS.Combat.ageDamageNumbers(STEP);
           RTS.Combat.ageCorpses(STEP);
           RTS.Match.checkEnd();

@@ -63,6 +63,11 @@ RTS.Unit = (function () {
       // v11：最近一次受到伤害的时间（秒，RTS.state.time）。斥候用它判断
       // 「被攻击时才反击」——窗口内允许交战，窗口外不主动索敌。
       lastHurtAt: -9999,
+
+      // v12：编队到达随机延迟因子（0-1），formations.js 在下达编队移动时设置，
+      //     steerToward 用它临时降低移速，让编队中的单位错开到达（防止同时堆叠）。
+      arriveDelay: 0,
+      _formationSpeedMul: 1, // v12：编队速度同步乘数（formations.js 设置）
     };
   }
 
@@ -120,7 +125,9 @@ RTS.Unit = (function () {
     const dx = tx - unit.x;
     const dy = ty - unit.y;
     const dist = Math.hypot(dx, dy);
-    const step = unit.speed * dt;
+    // v12：编队速度同步——_formationSpeedMul 由 formations.js 设置，让前队减速等后队
+    const speedMul = unit._formationSpeedMul || 1;
+    const step = unit.speed * speedMul * dt;
     if (dist <= step || dist < 0.001) {
       unit.x = tx;
       unit.y = ty;
@@ -225,20 +232,91 @@ RTS.Unit = (function () {
     return false;
   }
 
-  /** v10：风筝后退——远程单位背对近战目标移动（保持距离，边退边射） */
-  function kiteAway(unit, target, dt) {
+  /**
+   * v12：风筝后退——远程单位背对目标移动（保持距离，边退边射）。
+   * speedMul 控制后退速度：步兵 0.55，骑射 0.75（马上射箭更快）。
+   */
+  function kiteAway(unit, target, dt, speedMul) {
     const dx = unit.x - target.ref.x;
     const dy = unit.y - target.ref.y;
     const d = Math.hypot(dx, dy) || 1;
-    const step = unit.speed * 0.55 * dt;
+    const step = unit.speed * (speedMul || 0.55) * dt;
     const nx = unit.x + (dx / d) * step;
     const ny = unit.y + (dy / d) * step;
     if (RTS.World.isWalkablePx(nx, ny)) {
       unit.x = nx;
       unit.y = ny;
+    } else {
+      // 碰墙时尝试横向滑动（沿着障碍物边缘继续后退，不卡住）
+      const perpX = -dy / d;
+      const perpY = dx / d;
+      for (const sign of [1, -1]) {
+        const sx = unit.x + perpX * step * sign;
+        const sy = unit.y + perpY * step * sign;
+        if (RTS.World.isWalkablePx(sx, sy)) {
+          unit.x = sx;
+          unit.y = sy;
+          break;
+        }
+      }
     }
     // 后退时仍保持面向目标
     unit.facingX = target.ref.x >= unit.x ? 1 : -1;
+  }
+
+  /**
+   * v12：寻找对远程单位威胁最大的近战敌人（最近的非远程敌方单位）。
+   * 用于判断是否需要自动风筝/撤退。
+   */
+  function nearestMeleeThreat(unit, range) {
+    const enemy = unit.owner === 'player' ? 'enemy' : 'player';
+    const neighbors = RTS.Combat.query(unit.x, unit.y, range);
+    let best = null;
+    let bestDist = range * range;
+    for (const u of neighbors) {
+      if (u.owner !== enemy || u.hp <= 0) continue;
+      const def = RTS.Units.get(u.type);
+      if (!def || def.ranged) continue; // 只关心近战威胁
+      const dx = u.x - unit.x;
+      const dy = u.y - unit.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist) {
+        bestDist = d2;
+        best = u;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * v12：统计远程单位「前方」的友方近战数量。
+   * 「前方」= 朝敌方基地方向的半圆区域。
+   * 用来判断远程单位是否有近战掩护，决定是否需要主动后退。
+   */
+  function countFriendlyMeleeAhead(unit, range) {
+    const st = RTS.state;
+    if (!st) return 0;
+    // 确定「前方」方向：朝敌方基地
+    const enemyFaction = st[unit.owner === 'player' ? 'enemy' : 'player'];
+    const dirX = enemyFaction.base.x - unit.x;
+    const dirY = enemyFaction.base.y - unit.y;
+    const dirLen = Math.hypot(dirX, dirY) || 1;
+    const ndx = dirX / dirLen;
+    const ndy = dirY / dirLen;
+
+    const neighbors = RTS.Combat.query(unit.x, unit.y, range);
+    let count = 0;
+    for (const u of neighbors) {
+      if (u.owner !== unit.owner || u.hp <= 0 || u === unit) continue;
+      const def = RTS.Units.get(u.type);
+      if (!def || def.ranged) continue; // 只统计友方近战
+      // 检查是否在前方半圆（dot product > 0）
+      const dx = u.x - unit.x;
+      const dy = u.y - unit.y;
+      const dot = dx * ndx + dy * ndy;
+      if (dot > 0) count++;
+    }
+    return count;
   }
 
   /** 攻击：在射程内则进入前摇/攻击循环 */
@@ -246,7 +324,38 @@ RTS.Unit = (function () {
     const d = distTo(unit, target.ref.x, target.ref.y);
     const reach = unit.range + targetRadius(target);
     if (d <= reach) {
-      // v10：风筝（kite）微指令——远程单位面对近战贴脸时后退保持距离，边退边射
+      // v12：远程自动风筝——所有远程单位（弓箭手/弩手/骑射手）自动对近战敌人保持距离。
+      // 逻辑：检测射程内是否有近战威胁 → 有则边退边射（骑射退得更快）。
+      if (unit.ranged && target.kind === 'unit' && target.ref.type) {
+        const targetDef = RTS.Units.get(target.ref.type);
+        const targetIsRanged = targetDef && targetDef.ranged;
+        const Cfg = RTS.CONFIG;
+
+        if (!targetIsRanged) {
+          // 当前目标就是近战 → 直接对其风筝
+          const kiteMul = unit.speed > 200 // 骑射（speed 经过 speedScale 后 > 200）
+            ? (Cfg.autoKiteSpeedMulCav || 0.75)
+            : (Cfg.autoKiteSpeedMul || 0.55);
+          const triggerDist = (unit.range + targetRadius(target)) * (Cfg.autoKiteRangeMul || 0.50);
+          if (d < triggerDist) {
+            kiteAway(unit, target, dt, kiteMul);
+          }
+        } else {
+          // 当前目标是远程，但附近可能有近战冲过来 → 检测最近的近战威胁
+          const meleeThreat = nearestMeleeThreat(unit, unit.range * 0.8);
+          if (meleeThreat) {
+            const threatDist = Math.hypot(meleeThreat.x - unit.x, meleeThreat.y - unit.y);
+            const triggerDist = unit.range * (Cfg.autoKiteRangeMul || 0.50);
+            if (threatDist < triggerDist) {
+              const kiteMul = unit.speed > 200
+                ? (Cfg.autoKiteSpeedMulCav || 0.75)
+                : (Cfg.autoKiteSpeedMul || 0.55);
+              kiteAway(unit, { kind: 'unit', ref: meleeThreat }, dt, kiteMul);
+            }
+          }
+        }
+      }
+      // v10：原有风筝微指令（AI 手动下达的 kite 指令，保留兼容）
       if (
         unit.ranged &&
         unit.microOrder && unit.microOrder.kind === 'kite' &&
@@ -254,7 +363,7 @@ RTS.Unit = (function () {
         !(RTS.Units.get(target.ref.type) || {}).ranged &&
         d < unit.range * RTS.CONFIG.aiKiteDistanceMul
       ) {
-        kiteAway(unit, target, dt);
+        kiteAway(unit, target, dt, 0.55);
       }
       // 面向目标
       unit.facingX = target.ref.x >= unit.x ? 1 : -1;
@@ -424,6 +533,29 @@ RTS.Unit = (function () {
         const holdR = Math.max(RTS.CONFIG.acquireRadius, 220);
         const acq = scoutPassive(unit) ? null : RTS.Combat.acquire(unit, holdR);
         if (acq) {
+          // v12：远程单位在攻击前先检查是否需要主动撤退——
+          // 如果最近的近战敌人很近且前方没有友方近战掩护，先退到安全位置再射击。
+          if (unit.ranged && acq.kind === 'unit' && acq.ref.type) {
+            const acqDef = RTS.Units.get(acq.ref.type);
+            const acqIsMelee = acqDef && !acqDef.ranged;
+            if (acqIsMelee) {
+              const enemyDist = Math.hypot(acq.ref.x - unit.x, acq.ref.y - unit.y);
+              const dangerZone = unit.range * (RTS.CONFIG.autoKiteRangeMul || 0.50) * 1.4;
+              if (enemyDist < dangerZone) {
+                // 检查前方是否有友方近战可以扛线
+                const friendlyMelee = countFriendlyMeleeAhead(unit, unit.range * 0.8);
+                if (friendlyMelee === 0) {
+                  // 没有掩护，主动后退到 holdX/holdY（编队给的理想位置）
+                  const retreatDist = Math.hypot(unit.x - unit.holdX, unit.y - unit.holdY);
+                  if (retreatDist > RTS.CONFIG.arriveThreshold) {
+                    unit.orderTarget = { x: unit.holdX, y: unit.holdY };
+                    moveAlongPath(unit, dt);
+                    break; // 本帧不攻击，先走
+                  }
+                }
+              }
+            }
+          }
           unit.attackTarget = acq;
           unit.state = 'attack'; // 追击并攻击（跨障碍时 seekToward 会 A* 绕行）
           unit.path = [];

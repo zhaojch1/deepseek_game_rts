@@ -619,26 +619,48 @@ RTS.AI = (function () {
     return out;
   }
 
-  /** 把一组单位分配到一组目标点（attackMove，松散编队）。跳过已到位/在途单位防抖动。 */
+  /**
+   * v12：把一组单位分配到一组目标点。
+   * 使用编队系统按角色分层定位（近战前排/远程后排/骑兵侧翼），
+   * 而非简单网格排列，避免兵种堆叠成一团。
+   */
   function assignAttackMove(units, points, reachMul) {
-    const slots = rallySlots(units.length);
-    const tol = C().formationSpacing * (reachMul || 0.9);
-    units.forEach((u, i) => {
-      const pt = points[i % points.length];
-      const slot = slots[i % slots.length];
-      const sx = pt.x + slot.x;
-      const sy = pt.y + slot.y;
-      if (u.orderTarget && Math.hypot(u.orderTarget.x - sx, u.orderTarget.y - sy) < tol) return;
-      if (Math.hypot(u.x - sx, u.y - sy) < tol) return;
-      RTS.Unit.orderAttackMove(u, sx, sy);
-    });
+    if (units.length === 0) return;
+    if (!RTS.Formations) {
+      // 兜底：formations.js 未加载时走旧网格逻辑
+      const slots = rallySlots(units.length);
+      const tol = C().formationSpacing * (reachMul || 0.9);
+      units.forEach((u, i) => {
+        const pt = points[i % points.length];
+        const slot = slots[i % slots.length];
+        const sx = pt.x + slot.x;
+        const sy = pt.y + slot.y;
+        if (u.orderTarget && Math.hypot(u.orderTarget.x - sx, u.orderTarget.y - sy) < tol) return;
+        if (Math.hypot(u.x - sx, u.y - sy) < tol) return;
+        RTS.Unit.orderAttackMove(u, sx, sy);
+      });
+      return;
+    }
+    // 多目标点时按序分配
+    if (points.length === 1) {
+      RTS.Formations.formationAttackMove(units, points[0].x, points[0].y, { arriveDelay: true });
+    } else {
+      const perGroup = Math.ceil(units.length / points.length);
+      for (let i = 0; i < points.length; i++) {
+        const group = units.slice(i * perGroup, (i + 1) * perGroup);
+        if (group.length > 0) {
+          RTS.Formations.formationAttackMove(group, points[i].x, points[i].y, { arriveDelay: true });
+        }
+      }
+    }
   }
 
   function rally(ai) {
     if (!ai.rallyPoint || !ai.rallyPoint.x) ai.rallyPoint = rallyPointOf(ai);
     const units = freeUnits(mine(ai), squadTypeOf(ai));
     if (units.length === 0) return;
-    assignAttackMove(units, [ai.rallyPoint]);
+    // v12：集结时用编队系统，自动按角色排好阵型
+    RTS.Formations.formationAttackMove(units, ai.rallyPoint.x, ai.rallyPoint.y, { arriveDelay: true });
     ai.rallyTimer = 2.5;
   }
 
@@ -655,20 +677,27 @@ RTS.AI = (function () {
     const strikeCap = fullCommit ? units.length : Math.max(1, Math.floor(units.length * 0.75));
     const targets = lanes.map((l) => laneTarget(ai, l));
     const sel = units.slice(0, strikeCap);
-    const slots = rallySlots(sel.length);
-    // v10：远程单位站后排（目标点向己方一侧偏移 140px），近战顶前面
-    const dirX = theirs(ai).base.x > mine(ai).base.x ? 1 : -1;
-    sel.forEach((u, idx) => {
-      const t = targets[idx % targets.length];
-      const slot = slots[idx];
-      const isRanged = !!(RTS.Units.get(u.type) && RTS.Units.get(u.type).ranged);
-      const sx = t.x + slot.x - (isRanged ? dirX * 140 : 0);
-      const sy = t.y + slot.y;
-      // v7.1：已在途/已到位的单位不重复下令
-      if (u.orderTarget && Math.hypot(u.orderTarget.x - sx, u.orderTarget.y - sy) < C().formationSpacing) return;
-      if (Math.hypot(u.x - sx, u.y - sy) < C().formationSpacing) return;
-      RTS.Unit.orderAttackMove(u, sx, sy);
-    });
+
+    // v12：编队系统——按角色分层定位（近战前排/远程后排/骑兵侧翼），
+    // 不再简单网格排列，避免兵种堆叠成一团。
+    if (targets.length === 1) {
+      RTS.Formations.formationAttackMove(sel, targets[0].x, targets[0].y, {
+        forceClear: force,
+        arriveDelay: true,
+      });
+    } else {
+      // 多路进攻：按路数均匀分组，每组用编队系统
+      const perLane = Math.ceil(sel.length / targets.length);
+      for (let i = 0; i < targets.length; i++) {
+        const group = sel.slice(i * perLane, (i + 1) * perLane);
+        if (group.length > 0) {
+          RTS.Formations.formationAttackMove(group, targets[i].x, targets[i].y, {
+            forceClear: force,
+            arriveDelay: true,
+          });
+        }
+      }
+    }
     ai.waveElapsed = 0;
   }
 
@@ -689,16 +718,30 @@ RTS.AI = (function () {
     // v10：基地被大部队入侵时，连微指令单位也强制接管回防（清掉其微指令）
     const urgent = intruderCount(ai) >= C().aiDefenseIntruders;
     const units = recallUnits(controlled, false, squadTypeOf(ai), urgent);
-    const slots = rallySlots(units.length);
-    let i = 0;
-    units.forEach((u) => {
-      const slot = slots[i % slots.length];
+
+    // v12：防守时用编队系统在基地前方展开阵型（近战在前/远程在后）
+    // 远距离单位先集结到基地前方，近距离单位各自攻击最近敌人
+    const farUnits = [];
+    const nearUnits = [];
+    for (const u of units) {
+      if (urgent) RTS.Unit.clearMicro(u);
       if (RTS.Unit.distTo(u, base.x, base.y) > radius * 2) {
-        if (urgent) RTS.Unit.clearMicro(u);
-        RTS.Unit.orderAttackMove(u, base.x + slot.x * 0.5, base.y + slot.y * 0.5);
-        i++;
-        return;
+        farUnits.push(u);
+      } else {
+        nearUnits.push(u);
       }
+    }
+
+    // 远距离单位用编队集结到基地前方
+    if (farUnits.length > 0) {
+      const dirX = theirs(ai).base.x > base.x ? 1 : -1;
+      RTS.Formations.formationAttackMove(farUnits, base.x + dirX * radius * 0.4, base.y, {
+        arriveDelay: true,
+      });
+    }
+
+    // 近距离单位攻击最近的敌人
+    for (const u of nearUnits) {
       let nearest = null;
       let nd = Infinity;
       theirs(ai).units.forEach((p) => {
@@ -707,11 +750,9 @@ RTS.AI = (function () {
         if (d < nd) { nd = d; nearest = p; }
       });
       if (nearest) {
-        if (urgent) RTS.Unit.clearMicro(u);
         RTS.Unit.orderAttack(u, { kind: 'unit', ref: nearest });
       }
-      i++;
-    });
+    }
   }
 
   /** 撤退/重整：把可指挥单位拉到目标点。force=true 时连交战单位也强制脱离战斗撤走。 */
@@ -719,11 +760,11 @@ RTS.AI = (function () {
     // v10：撤退/重整属于紧急态势，强制接管微指令单位（清掉其微指令一起撤）
     const units = recallUnits(mine(ai), force, squadTypeOf(ai), true);
     if (units.length === 0) return;
-    const slots = rallySlots(units.length);
-    units.forEach((u, i) => {
-      const slot = slots[i % slots.length];
-      RTS.Unit.clearMicro(u);
-      RTS.Unit.orderMove(u, point.x + slot.x * (spreadMul || 0.6), point.y + slot.y * (spreadMul || 0.6));
+    // v12：撤退时也用编队系统（虽然撤退队形要求不高，但仍保持兵种分层，不堆成一团）
+    for (const u of units) RTS.Unit.clearMicro(u);
+    RTS.Formations.formationAttackMove(units, point.x, point.y, {
+      useAttackMove: false, // 撤退用 orderMove 不索敌
+      arriveDelay: false,
     });
   }
 
@@ -875,16 +916,33 @@ RTS.AI = (function () {
     // v7.1：集火更精确——圈内单位直接攻击，圈外单位先压到目标附近，
     // 正在交战的单位不打断（避免围城时把满场部队都拽过来挤成一团）。
     // v10：围城（siege）是强制态势，接管微指令单位一起攻城。
+    // v12：围城时用编队系统让部队分层包围（近战在前拆、远程在后射），
+    // 避免所有兵种挤到同一个点。
     const focusR = C().focusFireRadius;
-    recallUnits(controlled, false, squadTypeOf(ai), true).forEach((u) => {
+    const allUnits = recallUnits(controlled, false, squadTypeOf(ai), true);
+    for (const u of allUnits) RTS.Unit.clearMicro(u);
+
+    // 圈内：直接攻击；圈外：用编队集结到目标附近
+    const closeUnits = [];
+    const farUnits = [];
+    for (const u of allUnits) {
       const d = RTS.Unit.distTo(u, best.ref.x, best.ref.y);
-      RTS.Unit.clearMicro(u);
       if (d <= focusR) {
-        RTS.Unit.orderAttack(u, best);
+        closeUnits.push(u);
       } else {
-        RTS.Unit.orderAttackMove(u, best.ref.x, best.ref.y);
+        farUnits.push(u);
       }
-    });
+    }
+
+    // 近距离单位直接攻击
+    for (const u of closeUnits) {
+      RTS.Unit.orderAttack(u, best);
+    }
+
+    // 远距离单位用编队集结到目标附近（角色分层，不堆叠）
+    if (farUnits.length > 0) {
+      RTS.Formations.formationAttackMove(farUnits, best.ref.x, best.ref.y, { arriveDelay: true });
+    }
   }
 
   function fallback(ai) {
@@ -893,11 +951,8 @@ RTS.AI = (function () {
     const staging = { x: base.x + (theirs(ai).base.x - base.x) * 0.4, y: base.y };
     const units = recallUnits(mine(ai), false, squadTypeOf(ai));
     if (units.length === 0) return;
-    const slots = rallySlots(units.length);
-    units.forEach((u, i) => {
-      const slot = slots[i % slots.length];
-      RTS.Unit.orderAttackMove(u, staging.x + slot.x, staging.y + slot.y);
-    });
+    // v12：后撤时用编队系统，保持阵型有序撤退
+    RTS.Formations.formationAttackMove(units, staging.x, staging.y, { arriveDelay: true });
   }
 
   function raidEcon(ai) {
@@ -915,6 +970,7 @@ RTS.AI = (function () {
     const chokepoints = laneIds().map((l) => ({ x: base.x + dirX * 220, y: laneY(l) }));
     const units = recallUnits(mine(ai), false, squadTypeOf(ai));
     if (units.length === 0) return;
+    // v12：隘口防守用编队系统
     assignAttackMove(units, chokepoints);
   }
 
@@ -969,8 +1025,9 @@ RTS.AI = (function () {
     const fy = laneY(lane);
     const units = recallUnits(mine(ai), false, squadTypeOf(ai), true);
     if (units.length === 0) return;
-    units.forEach((u) => RTS.Unit.clearMicro(u));
-    assignAttackMove(units, [{ x: fx, y: fy }]);
+    // v12：防线推进用编队系统——以战斗阵型向前推进
+    for (const u of units) RTS.Unit.clearMicro(u);
+    RTS.Formations.formationAttackMove(units, fx, fy, { arriveDelay: true });
   }
 
   // ------------------------------------------------------------------ v10：微指令（逐单位战术命令）

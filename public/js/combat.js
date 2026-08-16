@@ -263,11 +263,18 @@ RTS.Combat = (function () {
     }
   }
 
-  /** 单位间分离（避免堆叠），基于空间分桶 */
+  /**
+   * v12：单位间分离（避免堆叠），基于空间分桶。
+   * 增强版：同阵营单位间斥力更强，不同阵营间保持基础物理分离。
+   * v12 编队系统进一步增强：formations.js 的 applyFormationSeparation 在此之后额外处理。
+   */
   function applySeparation() {
     const sep = C().unitSeparationDist;
+    // v12：同阵营斥力系数加大（防止友军堆叠比推开敌人更重要）
+    const friendlyPush = 0.65;
+    const enemyPush = 0.35;
     forEachUnit((u) => {
-      const neighbors = query(u.x, u.y, sep + 24);
+      const neighbors = query(u.x, u.y, sep + 28);
       if (neighbors.length <= 1) return;
       let pushX = 0;
       let pushY = 0;
@@ -277,19 +284,21 @@ RTS.Combat = (function () {
         const dy = u.y - n.y;
         const d = Math.hypot(dx, dy);
         const minD = u.radius + n.radius + 6;
+        const isFriendly = n.owner === u.owner;
+        const pushFactor = isFriendly ? friendlyPush : enemyPush;
         if (d < sep && d > 0.001) {
           const overlap = sep - d;
-          pushX += (dx / d) * overlap;
-          pushY += (dy / d) * overlap;
+          pushX += (dx / d) * overlap * pushFactor;
+          pushY += (dy / d) * overlap * pushFactor;
         } else if (d < minD && d > 0.001) {
           const overlap = minD - d;
-          pushX += (dx / d) * overlap;
-          pushY += (dy / d) * overlap;
+          pushX += (dx / d) * overlap * pushFactor;
+          pushY += (dy / d) * overlap * pushFactor;
         }
       }
       if (pushX || pushY) {
-        const nx = u.x + pushX * 0.5;
-        const ny = u.y + pushY * 0.5;
+        const nx = u.x + pushX;
+        const ny = u.y + pushY;
         if (RTS.World.isWalkablePx(nx, ny)) {
           u.x = nx;
           u.y = ny;

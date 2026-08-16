@@ -58,6 +58,11 @@ const ARK_API_KEY = process.env.ARK_API_KEY || '';
 const ARK_MODEL = process.env.ARK_MODEL || 'doubao-seed-2-1-turbo-260628';
 const ARK_ENDPOINT = process.env.ARK_ENDPOINT || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 
+// 小米 MiMo —— v12 新增的第三家大模型供应商
+const MIMO_API_KEY = process.env.MIMO_API_KEY || '';
+const MIMO_MODEL = process.env.MIMO_MODEL || 'mimo-v2.5';
+const MIMO_ENDPOINT = process.env.MIMO_ENDPOINT || 'https://api.xiaomimimo.com/v1/chat/completions';
+
 // ---------------------------------------------------------------- 单位/地图定义（供 AI 决策用）
 
 /**
@@ -562,14 +567,16 @@ function buildQuartermasterPrompt(base) {
 }
 
 /**
- * 调用大模型取得决策。provider: 'deepseek' | 'doubao'；role: v10 指挥链角色。
+ * 调用大模型取得决策。provider: 'deepseek' | 'doubao' | 'mimo'；role: v10 指挥链角色。
  * 豆包走火山方舟 ARK 的 OpenAI 兼容接口（附 thinking.type=disabled 关闭思考）。
+ * 小米 MiMo 走 xiaomimimo.com 的 OpenAI 兼容接口（用 api-key 头鉴权）。
  */
 function callLLM(payload, provider, role) {
   const isDoubao = provider === 'doubao';
-  const apiKey = isDoubao ? ARK_API_KEY : DEEPSEEK_API_KEY;
-  const model = isDoubao ? ARK_MODEL : DEEPSEEK_MODEL;
-  const endpoint = new URL(isDoubao ? ARK_ENDPOINT : DEEPSEEK_ENDPOINT);
+  const isMimo = provider === 'mimo';
+  const apiKey = isMimo ? MIMO_API_KEY : isDoubao ? ARK_API_KEY : DEEPSEEK_API_KEY;
+  const model = isMimo ? MIMO_MODEL : isDoubao ? ARK_MODEL : DEEPSEEK_MODEL;
+  const endpoint = new URL(isMimo ? MIMO_ENDPOINT : isDoubao ? ARK_ENDPOINT : DEEPSEEK_ENDPOINT);
   const side = payload && payload.side === 'player' ? 'player' : 'enemy';
   const body = {
     model,
@@ -587,9 +594,26 @@ function callLLM(payload, provider, role) {
     stream: false,
   };
   if (isDoubao) body.thinking = { type: 'disabled' };
+  // MiMo 推荐参数
+  if (isMimo) {
+    body.max_completion_tokens = 1024;
+    body.temperature = 1.0;
+    body.top_p = 0.95;
+  }
 
   return new Promise((resolve, reject) => {
     const jsonBody = JSON.stringify(body);
+
+    // MiMo 用 api-key 头鉴权，其余用 Authorization: Bearer
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonBody),
+    };
+    if (isMimo) {
+      headers['api-key'] = apiKey;
+    } else {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
 
     const req = https.request(
       {
@@ -597,11 +621,7 @@ function callLLM(payload, provider, role) {
         port: endpoint.port || 443,
         path: endpoint.pathname + endpoint.search,
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(jsonBody),
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
       },
       (res) => {
         let size = 0;
@@ -653,11 +673,11 @@ async function handleAiCommand(req, res) {
     sendJson(res, 400, { ok: false, reason: 'bad_request', message: String(e.message) });
     return;
   }
-  const provider = payload && payload.provider === 'doubao' ? 'doubao' : 'deepseek';
+  const provider = payload && (payload.provider === 'doubao' || payload.provider === 'mimo') ? payload.provider : 'deepseek';
   const role = payload && ROLE_LIST.includes(payload.role) ? payload.role : 'general';
-  const apiKey = provider === 'doubao' ? ARK_API_KEY : DEEPSEEK_API_KEY;
+  const apiKey = provider === 'mimo' ? MIMO_API_KEY : provider === 'doubao' ? ARK_API_KEY : DEEPSEEK_API_KEY;
   if (!apiKey) {
-    const envName = provider === 'doubao' ? 'ARK_API_KEY' : 'DEEPSEEK_API_KEY';
+    const envName = provider === 'mimo' ? 'MIMO_API_KEY' : provider === 'doubao' ? 'ARK_API_KEY' : 'DEEPSEEK_API_KEY';
     sendJson(res, 200, { ok: false, reason: 'no_key', message: `未配置 ${envName}，使用规则 AI` });
     return;
   }
@@ -686,6 +706,8 @@ const server = http.createServer((req, res) => {
       model: DEEPSEEK_MODEL,
       hasArkKey: !!ARK_API_KEY,
       arkModel: ARK_MODEL,
+      hasMimoKey: !!MIMO_API_KEY,
+      mimoModel: MIMO_MODEL,
     });
     return;
   }
@@ -702,4 +724,5 @@ server.listen(PORT, () => {
   console.log(`[RTS] 访问地址：http://localhost:${PORT}`);
   console.log(`[RTS] DeepSeek AI：${DEEPSEEK_API_KEY ? '已配置 (' + DEEPSEEK_MODEL + ')' : '未配置（该侧降级为规则 AI）'}`);
   console.log(`[RTS] 豆包(ARK) AI：${ARK_API_KEY ? '已配置 (' + ARK_MODEL + ')' : '未配置（该侧降级为规则 AI）'}`);
+  console.log(`[RTS] 小米 MiMo AI：${MIMO_API_KEY ? '已配置 (' + MIMO_MODEL + ')' : '未配置（该侧降级为规则 AI）'}`);
 });

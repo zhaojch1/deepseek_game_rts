@@ -57,10 +57,25 @@ RTS.CONFIG = {
   pathLookahead: 420, // 视线平滑的前瞻距离（px），限制每帧 LOS 采样成本
   repathTargetDelta: 80, // 追击/移动目标偏离当前路径目标超过该距离时强制重算路径（px）
 
+  // ---------------------------------------------------------------- 编队系统（v12）
+  formationSepDist: 42, // v12：编队内单位间理想间距（px，比原 unitSeparationDist 大，保证队形不挤）
+  formationSepPush: 0.65, // v12：编队排斥力系数（0-1，越大推力越强；0.65 在推开与不抖动之间平衡）
+  formationCohesionRadius: 280, // v12：编队凝聚力半径（px）——单位离编队质心超过此距离时，额外加速归队
+  formationIdleDriftSpeed: 0.35, // v12：空闲单位向编队理想位置漂移的速度系数（0-1，低速平稳归位）
+  formationRangedOffset: 130, // v12：远程单位在编队中相对前线的后退距离（px），保持远程在近战身后
+  formationCavalryFlank: 160, // v12：骑兵在编队中的侧翼展开距离（px），骑兵不堆在正面
+  formationArriveStagger: 0.55, // v12：编队到达目标时的随机延迟系数（0-1，防止全部同时抵达堆叠）
+  formationRoleSepMul: 2.2, // v12：不同角色（近战/远程/骑兵）单位间的额外分离倍率（保持兵种分层）
+
   // ---------------------------------------------------------------- 战斗
   spatialCellSize: 96, // 空间分桶单元格
   attackWindup: 0.15, // 攻击前摇（秒）
   damageNumberLifetime: 0.9,
+
+  // ---------------------------------------------------------------- v12 远程自动风筝
+  autoKiteRangeMul: 0.50, // 远程单位自动后退的触发距离（射程比例）——近战进入射程 50% 以内即触发后退
+  autoKiteSpeedMul: 0.55, // 步兵远程后退速度系数（移速 × 该值）
+  autoKiteSpeedMulCav: 0.75, // 骑射后退速度系数（更快，马上射箭）
 
   // ---------------------------------------------------------------- 地形（渲染 / 掩体）
   terrainTypes: { grass: 0, water: 1, forest: 2, rock: 3, road: 4 },

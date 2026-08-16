@@ -1,6 +1,6 @@
 # DeepSeek Game RTS
 
-> **当前版本：v11**（多基地 + 并行生产 + 基地摧毁/修复 + 哨塔重装 + 肉盾强化 + AI 指挥链调优；完整改动见文末「版本历程」）
+> **当前版本：v12**（编队系统 + 远程自动风筝 + 弓箭手智能撤退 + 小米 MiMo AI；完整改动见文末「版本历程」）
 
 网页端二维实时策略（RTS）游戏。运行在浏览器中，玩家扮演指挥官，生产古代冷兵器兵种、框选部队、下达移动与攻击指令，占领地图资源点、升级科技，与电脑对手实时对抗。
 
@@ -23,7 +23,7 @@ node server.js
 ```bash
 # Windows: copy .env.example .env
 cp .env.example .env
-# 编辑 .env，设置 DEEPSEEK_API_KEY=sk-...（DeepSeek）与/或 ARK_API_KEY=...（豆包）
+# 编辑 .env，设置 DEEPSEEK_API_KEY=sk-...（DeepSeek）与/或 ARK_API_KEY=...（豆包）与/或 MIMO_API_KEY=sk-...（小米 MiMo）
 node server.js
 ```
 
@@ -33,6 +33,7 @@ node server.js
 | --- | --- | --- |
 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-v4-flash` |
 | 豆包（火山方舟 ARK） | `ARK_API_KEY` | `doubao-seed-2-1-turbo-260628` |
+| 小米 MiMo | `MIMO_API_KEY` | `mimo-v2.5` |
 
 API Key 仅保存在后端，绝不出现在前端。某侧未配置 Key 时，该侧自动进入「降级自动驾驶」。
 
@@ -68,6 +69,8 @@ API Key 仅保存在后端，绝不出现在前端。某侧未配置 Key 时，�
 > **v10.2 兵营（第二出兵点）**：建筑师按 `N` + 左键可建造兵营（🪵150 🪨100，每阵营上限 3 座）。兵营与基地一样可以出兵——**当基地生产队列超过 3 个时，多余的订单从兵营出生**（解决「金币太多但基地生产队列不够」）：下单时若基地队列已有 3 个在排且存在兵营，该订单标记为从兵营出生，训练完成后从兵营门口现身并前往集结点。兵营耐久 1500、占位成障碍、可被摧毁（摧毁后订单回退到基地出生）。AI 在经济强（金币速率高/接近上限）且生产有瓶颈（队列拥堵/人口接近满编）时也会自动建兵营。
 >
 > **v10 四级指挥链**：双方 AI 由**四个大模型**组成司令部——**主将**（战略意图 3–6s）、**进攻副将**与**防守副将**（把命令翻译成**逐单位**战术命令，4–7s）、**军需官**（生产计划/科技升级/哨塔选址，5–9s）。主将说「抢占资源」，进攻副将就会让 3 个斥候同时奔赴 3 座不同的金矿；军需官按敌方兵种构成反制出兵并决定升级与筑垒位置。副将命令落到单位级「微指令」，微指令占用中的部队不会被其他执行器拽走（防来回横跳）；紧急防守/撤退可强制接管。各角色决策以「【主将】/【进攻副将】/【防守副将】/【军需官】」前缀显示在两侧消息条。
+>
+> **v12 编队系统**：军队不再是「黑社会械斗」——新增 `formations.js` 编队模块，所有移动/攻击/集结/防守指令自动按**兵种角色分层定位**：**近战步兵在最前方**（交错排列、肉盾居中）、**远程弓弩在最后方**（与前线保持安全距离）、**骑兵在两翼展开**（侧翼突击位）。编队内**强力排斥 + 跨角色额外间距**（不同兵种间距 ×2.2 倍），从物理层面杜绝兵种堆叠；**空闲单位自动向编队理想位置漂移**（集结时自动排好阵型而非随意站位）；**到达目标时随机错开时机**（防止全军同时挤到一点）；**编队速度同步**（前队减速等后队，保持整体推进）。所有指令（玩家框选右键/AI 态势执行/副将微指令）均走编队系统。
 
 ## 核心特性
 
@@ -120,6 +123,7 @@ deepseek_game_rts/
         ├── barracks.js       # v10.2 兵营（建筑师建造的第二出兵点：队列溢出分担/占位/销毁）
         ├── bases.js          # v11.1 基地修复（建筑师重建被摧毁的指挥所）
         ├── ai.js             # 指挥官 AI（v10：主将+进攻/防守副将+军需官四级指挥链 + 逐单位微指令 + 39 态兜底执行器）
+        ├── formations.js     # v12 编队系统（兵种角色分层 + 编队凝聚力 + 到达错开 + 速度同步）
         ├── input.js          # 鼠标/键盘/框选
         ├── render.js         # 地形/城堡/箭矢/小地图（单位绘制委托给定义）
         ├── ui.js             # HUD/面板/主菜单（由注册表动态生成）
@@ -128,7 +132,7 @@ deepseek_game_rts/
 
 ## 调参
 
-- **跨单位/跨地图的平衡数值**（军费增长、人口、基地耐久、**基地防御**（v11.3：`baseDefenseDamage` 30 / `baseDefenseArrows` 3 / `baseDefenseInterval` 1.0s / `baseDefenseRange` 360 / `baseDefenseDamagePerLevel` 0.25）、五线科技、AI 节奏、投射物速度、**生产并发**（v11.2：`productionConcurrencyMax` 5，并行训练上限）、**防御哨塔造价/耐久/射程/伤害/箭数**（v11.1 重装化：`towerMaxHp` 1500 / `towerDefenseRange` 400 / `towerDefenseDamage` 30 / `towerDefenseArrows` 2 / `towerBuildCost` 100）、**基地修复**（v11.1：`baseRepairCost` 木300石300 / `baseRepairTime` 8s / `baseRepairHpRatio` 0.5 / `baseRepairRadius`）、v10 指挥链节奏：主将/副将/军需官调用间隔、微指令时长与订单上限、v10.1 筑垒节奏：检查间隔/建筑师目标（v11.1 `aiArchitectTarget` 3）/开局门槛、v10.2 兵营：造价/耐久/上限/基地队列溢出阈值（`baseQueueBarracksThreshold`）与 AI 建兵营触发条件（`aiBarracksMinGoldRate`/`aiBarracksCongestionTime` 等）、v11 多基地：出兵轮转（生产自动按 `bases` 顺序分配，无需配置）、主将低频决策（`aiDecisionIntervalMin/Max` ≈ 20s）、斥候上限 `aiMaxScouts`(3)、占领确认 `aiScoutCaptureSettleTime`(4s)、反击窗口 `aiScoutCounterattackWindow`(3s)、v11.2 按局势建塔（`aiTowerFrontArmyLead` 5：兵力领先即优势，哨塔修到敌方半场桥头））在 `public/js/config.js`。
+- **跨单位/跨地图的平衡数值**（军费增长、人口、基地耐久、**基地防御**（v11.3：`baseDefenseDamage` 30 / `baseDefenseArrows` 3 / `baseDefenseInterval` 1.0s / `baseDefenseRange` 360 / `baseDefenseDamagePerLevel` 0.25）、五线科技、AI 节奏、投射物速度、**生产并发**（v11.2：`productionConcurrencyMax` 5，并行训练上限）、**防御哨塔造价/耐久/射程/伤害/箭数**（v11.1 重装化：`towerMaxHp` 1500 / `towerDefenseRange` 400 / `towerDefenseDamage` 30 / `towerDefenseArrows` 2 / `towerBuildCost` 100）、**基地修复**（v11.1：`baseRepairCost` 木300石300 / `baseRepairTime` 8s / `baseRepairHpRatio` 0.5 / `baseRepairRadius`）、v10 指挥链节奏：主将/副将/军需官调用间隔、微指令时长与订单上限、v10.1 筑垒节奏：检查间隔/建筑师目标（v11.1 `aiArchitectTarget` 3）/开局门槛、v10.2 兵营：造价/耐久/上限/基地队列溢出阈值（`baseQueueBarracksThreshold`）与 AI 建兵营触发条件（`aiBarracksMinGoldRate`/`aiBarracksCongestionTime` 等）、v11 多基地：出兵轮转（生产自动按 `bases` 顺序分配，无需配置）、主将低频决策（`aiDecisionIntervalMin/Max` ≈ 20s）、斥候上限 `aiMaxScouts`(3)、占领确认 `aiScoutCaptureSettleTime`(4s)、反击窗口 `aiScoutCounterattackWindow`(3s)、v11.2 按局势建塔（`aiTowerFrontArmyLead` 5：兵力领先即优势，哨塔修到敌方半场桥头）、**v12 编队系统**（`formationSepDist` 42 / `formationSepPush` 0.65 / `formationCohesionRadius` 280 / `formationIdleDriftSpeed` 0.35 / `formationRangedOffset` 130 / `formationCavalryFlank` 160 / `formationArriveStagger` 0.55 / `formationRoleSepMul` 2.2））在 `public/js/config.js`。
 - **单个单位的数值/克制/标签**在 `public/js/units/<id>.js`。
 - **单个地图的尺寸/基地/通道/资源**在 `public/js/maps/<id>.js`。
 - 改完单位/地图 `doc` 后运行 `node tools/build_intro.js` 刷新介绍文件。
@@ -146,7 +150,7 @@ deepseek_game_rts/
 
 ```
 config → registry → units/* → maps/* → world → pathfinding → camera → unit
-→ combat → production → resources → projectiles → towers → ai → input → render → ui → main
+→ combat → production → resources → projectiles → towers → bases → formations → ai → input → render → ui → main
 ```
 
 > 新增单位/地图时，把新 `<script>` 加在 `registry.js` 之后、`world.js` 之前即可。
@@ -228,7 +232,8 @@ Faction = {
 
 ### combat.js / production.js / resources.js / projectiles.js
 
-- **combat**：空间分桶；`acquire` 索敌；`applyUnitDamage` 统一「克制 × 森林掩体 − 护甲减伤」；克制经 `RTS.Units.counterMul` 动态取；`kill` 生成尸体。
+- **combat**：空间分桶；`acquire` 索敌；`applyUnitDamage` 统一「克制 × 森林掩体 − 护甲减伤」；克制经 `RTS.Units.counterMul` 动态取；`kill` 生成尸体。v12：同阵营分离力加大（`friendlyPush: 0.65`），友军不再挤成一团。
+- **formations（v12）**：编队系统——`unitRole` 按单位 tags 分类（melee/ranged/cavalry/special）；`computeIdealOffsets` 按角色计算编队中每个单位的理想位置（近战前排交错/远程后排/骑兵两翼）；`formationAttackMove` 编队感知的攻击移动（角色分层 + 到达错开）；`applyFormationSeparation` 跨角色额外间距（不同兵种间距 ×2.2 倍）；`applyCohesion` 空闲单位向编队理想位置漂移；`syncFormationSpeed` 前队减速等后队。
 - **production**：被动军费 + FIFO 队列；`spawnUnit` 从城堡城门出生并 `orderAttackMove` 前往基地 `rallyX/rallyY` 集结点。
 - **resources**：资源点持久控制；五线升级（攻击/护甲/城防/破城/疾行）；城堡防御从离目标最近的角塔射塔箭（`towerFlash` 闪光）。
 - **projectiles**：实体箭/塔箭，`spawnArrow`/`spawnTowerArrow` 的 `target` 必须是 `{kind, ref}` 包装对象。
@@ -341,3 +346,17 @@ v7 起 AI 控制器按阵营参数化：`RTS.AI.init(owner, provider)`，`owner`
   - **基地重装炮台**：基地箭塔 14→**30 伤害/箭**、每轮 **3 箭齐射**、攻速 1.4→**1.0s**、射程 300→**360**（每级城防 +25%）；被围时基地有强力反打，不再是「一围必死」的活靶子。
   - **肉盾重装**：肉盾(wall)生命 320→**700**（全场最高）、造价 140→160；AI 在拆塔/攻基地时**强制搭配肉盾扛塔伤 + 锤子兵输出**（`targetFocus=base` 与进攻类态势显著加权，军需官提示词明确「别让脆皮裸拆建筑白送」）。
   - **废墟不再是锚点**：修复「基地被摧毁后单位仍聚集/奔赴废墟」——**主基地被摧毁时 `faction.base` 自动切换到第一座存活基地**（集结/撤退/防守锚点与新单位集结点跟随新主基地）；AI 进攻目标（`laneTarget`）、防守威胁统计（`intruderCount`/`nearestIntruder`/`defend`）全部排除被摧毁的基地，单位不再涌向废墟。
+- **v12**：**编队系统——从「黑社会械斗」到「有序军队」**——
+  - **编队模块（`formations.js`）**：新增全局编队管理器，所有移动/攻击/集结/防守指令走编队系统。单位按**兵种角色自动分层**：近战步兵（melee）在最前方交错排列（肉盾居中吸收伤害）、远程弓弩（ranged）在最后方（与前线保持 130px 安全距离）、骑兵（cavalry）在两翼展开（侧翼突击位）、特殊单位（建筑师等）在中央偏后。编队朝向自动计算（从质心指向目标方向或敌方基地）。
+  - **编队增强分离力**：同阵营单位间斥力增大（`friendlyPush: 0.65`），**不同角色单位间距额外放大 ×2.2 倍**（`formationRoleSepMul`）——远程不会混入近战群、骑兵不会挤在步兵堆里，从物理层面杜绝兵种堆叠。
+  - **编队凝聚力**：空闲（idle）且无微指令的单位，每帧自动向编队理想位置**轻微漂移**（`formationIdleDriftSpeed: 0.35`）——集结时部队自动排好阵型（近战在前/远程在后/骑兵两翼），而非随意站位。
+  - **编队速度同步**：移动中的编队，离质心太远的前队单位被**自动减速**（`_formationSpeedMul`），等后队跟上——整支部队作为整体推进，而非快的先到慢的掉队。
+  - **到达错开**：编队下达移动/攻击指令时，每个单位获得随机的到达延迟因子（`formationArriveStagger: 0.55`），**防止全军同时挤到同一个点**形成肉球。
+  - **全面集成**：玩家框选右键移动/攻击移动、AI 态势执行器（`attackLanes`/`rally`/`defend`/`fallback`/`holdLine`/`focusFire`）、副将微指令均走编队系统。编队参数集中在 `config.js`（`formation*` 前缀），可独立调参不影响其他系统。
+  - **底层修改**：`combat.js` 同阵营分离力加大（`friendlyPush: 0.65`）、`unit.js` 新增 `arriveDelay`/`_formationSpeedMul` 字段并集成到移动计算中、`main.js` 主循环新增编队系统调用（`clearCache`→`syncFormationSpeed`→`applyFormationSeparation`→`applyCohesion`）。
+- **v12.1**：**远程自动风筝 + 弓箭手智能撤退**——
+  - **自动风筝**：所有远程单位（弓箭手/弩手/骑射手）在战斗中**自动对近战敌人保持距离**——当近战敌人进入射程 50% 范围内，远程单位自动边退边射（`autoKiteRangeMul` 可调）。骑射后退更快（速度系数 0.75），步兵弓箭手/弩手后退稍慢（0.55），但都不会停止射击。
+  - **骑射手边跑边射**：骑射手（移速 3.8 全场第二快）现在真正实现风筝战术——面对锤子兵/肉盾/长矛兵等慢速目标时，边高速移动边回头射击，近战根本追不上。碰墙时自动横向滑动，不会卡住。
+  - **弓箭手智能撤退**：弓箭手/弩手在 idle 状态检测到近战敌人靠近时，如果前方没有友方近战掩护（`countFriendlyMeleeAhead` 检测前方半圆内是否有友方 melee），会主动退回到编队给的理想位置（`holdX/holdY`），不再傻站在前排抗线。有近战掩护时则安心在后排输出。
+  - **参数可调**：`autoKiteRangeMul`(0.50 触发距离比例)、`autoKiteSpeedMul`(0.55 步兵后退速度)、`autoKiteSpeedMulCav`(0.75 骑射后退速度) 在 `config.js` 中。
+- **v12.2**：**新增小米 MiMo 大模型**——第三家 AI 供应商（`MIMO_API_KEY`，模型 `mimo-v2.5`），主菜单下拉框可选；走 `api-key` 头鉴权的 OpenAI 兼容接口，支持四级指挥链全部角色。

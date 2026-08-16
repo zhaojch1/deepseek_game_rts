@@ -246,7 +246,9 @@ RTS.UI = (function () {
 
     // AI 来源（一旦大模型成功接管即视为大模型驱动；未接管时为降级自动驾驶）
     if (st.ai.deepseekEverActive) {
-      el.aiSource.textContent = 'AI：' + (st.ai.provider === 'doubao' ? '豆包' : 'DeepSeek');
+      const prov = st.ai.provider;
+      const label = prov === 'doubao' ? '豆包' : prov === 'mimo' ? 'MiMo' : 'DeepSeek';
+      el.aiSource.textContent = 'AI：' + label;
       el.aiSource.classList.add('deepseek');
     } else {
       el.aiSource.textContent = 'AI：降级自动驾驶';
@@ -383,9 +385,9 @@ RTS.UI = (function () {
 
   function aiSourceLabel(ai) {
     if (!ai) return '—';
-    return ai.deepseekEverActive
-      ? (ai.provider === 'doubao' ? '豆包' : 'DeepSeek')
-      : '降级自动驾驶';
+    if (!ai.deepseekEverActive) return '降级自动驾驶';
+    const prov = ai.provider;
+    return prov === 'doubao' ? '豆包' : prov === 'mimo' ? 'MiMo' : 'DeepSeek';
   }
 
   function updateDebugPanel(st) {
