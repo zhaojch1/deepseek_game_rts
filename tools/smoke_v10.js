@@ -86,8 +86,8 @@ for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filenam
   });
   RTS.state = {
     time: 0, phase: 'running', fps: 0, debugMode: false,
-    player: mkFaction('player', bases.player),
-    enemy: mkFaction('enemy', bases.enemy),
+    player: mkFaction('player', bases.player[0]),
+    enemy: mkFaction('enemy', bases.enemy[0]),
     selection: new Set(), selectedBase: null,
     damageNumbers: [],
     resources: { nodes: RTS.World.placeResources(map) },
@@ -204,7 +204,7 @@ for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filenam
   ai.phase = 'fortify';
   ai.phaseChanged = true;
   await waitFor(() => !!arch.building);
-  const chokeX = enemy.base.x + (bases.player.x > enemy.base.x ? 1 : -1) * 260;
+  const chokeX = enemy.base.x + (bases.player[0].x > enemy.base.x ? 1 : -1) * 260;
   const chokeY = 32 * RTS.CONFIG.tileSize;
   ok(!!arch.building, '建筑师收到筑垒指令（军需官选址）');
   if (arch.building) {
@@ -281,7 +281,7 @@ for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filenam
   RTS.Unit.clearMicro(manualUnit);
   ok(!manualUnit.microOrder, 'RTS.Unit.clearMicro 清除微指令（玩家手动下令路径）');
 
-  // ---- 13) 斥候抢占链（确定性状态机：占完一座自动续接最近下一座，不折返） ----
+  // ---- 13) 斥候抢占链（确定性状态机：完全占领+安全确认后才续接最近下一座，不折返） ----
   ai.phase = 'build'; // 无操作态势，避免执行器干扰
   ai.phaseChanged = true;
   const nodeA = RTS.state.resources.nodes.find((n) => n.owner !== 'enemy');
@@ -293,16 +293,26 @@ for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filenam
   };
   RTS.Unit.orderAttackMove(chainScout, nodeA.x, nodeA.y);
   const oldOwner = nodeA.owner;
-  nodeA.owner = 'enemy'; // 模拟占领完成（归己方且无敌人）
   const otherUnowned = RTS.state.resources.nodes.filter((n) => n.owner !== 'enemy');
-  RTS.AI.updateAll(STEP);
   if (otherUnowned.length > 0) {
+    // v11：仅归己方但未完全占领（control 未到 ±1）→ 先驻守等待，不续接
+    nodeA.owner = 'enemy';
+    nodeA.control = 0.5;
+    RTS.AI.updateAll(STEP);
+    ok(!!chainScout.microOrder && chainScout.microOrder.nodeId === nodeA.id,
+      '抢占链：未完全占领时不续接（等待完全占领）');
+    // 完全占领 + 安全，且满 settle 时长 → 续接最近下一座
+    nodeA.control = 1;
+    RTS.AI.updateAll(STEP); // 第一拍：开始「完全占领确认」计时
+    RTS.state.time += RTS.CONFIG.aiScoutCaptureSettleTime + 1;
+    RTS.AI.updateAll(STEP); // 第二拍：满确认时长 → 续接下一据点
     ok(!!chainScout.microOrder && chainScout.microOrder.nodeId !== nodeA.id,
-      '抢占链：占领后自动续接下一个无主资源点（#' + nodeA.id + ' → #' + (chainScout.microOrder ? chainScout.microOrder.nodeId : '?') + '）');
+      '抢占链：完全占领并等待确认后自动续接下一个无主资源点（#' + nodeA.id + ' → #' + (chainScout.microOrder ? chainScout.microOrder.nodeId : '?') + '）');
   } else {
     ok(!chainScout.microOrder, '抢占链：无主节点占完后释放');
   }
   nodeA.owner = oldOwner;
+  nodeA.control = 0;
   RTS.Unit.clearMicro(chainScout);
 
   // ---- 14) 筑垒节奏（确定性，不依赖 fortify 态势）：资源富余 → 自产建筑师并派工 ----
@@ -403,17 +413,23 @@ for (const f of files) vm.runInThisContext(fs.readFileSync(f, 'utf8'), { filenam
   ok(RTS.World.isWalkable(brTileAfter.tx, brTileAfter.ty), '兵营销毁后地形恢复可通行');
 
   // ---- 18) AI 兵营节奏：经济强 + 队列拥堵 → 自动派建筑师建兵营（确定性） ----
+  // v11.2：兵营在「劣势/均势」时优先（优势时优先建前线哨塔），这里让玩家方兵力占优触发兵营分支
   enemy.wood = 300;
   enemy.stone = 300;
   enemy.gold = 2000;
   enemy.goldRate = 60; // 模拟经济强（含金矿）
+  for (let i = 0; i < 30; i++) {
+    const du = RTS.Unit.create('player', 'sword', RTS.state.player.base.x + 40 + i * 30, RTS.state.player.base.y + 30);
+    RTS.state.player.units.set(du.id, du);
+  }
   ai.queueCongestionTime = 20; // 模拟基地队列持续拥堵（≥10s）
   ai.fortifyTimer = -1;
   const arch3 = RTS.Unit.create('enemy', 'architect', enemy.base.x + 60, enemy.base.y);
   enemy.units.set(arch3.id, arch3);
   RTS.AI.updateAll(STEP);
-  ok(!!arch3.building && arch3.building.kind === 'barracks',
-    'AI 兵营节奏：经济强+队列拥堵时自动派建筑师建兵营（' + (arch3.building ? arch3.building.kind : '未派工') + '）');
+  const anyBarrackBuild = [...enemy.units.values()].some((u) => u.building && u.building.kind === 'barracks');
+  ok(anyBarrackBuild,
+    'AI 兵营节奏：经济强+队列拥堵（劣势方）时自动派建筑师建兵营（' + (anyBarrackBuild ? 'barracks' : '未派工') + '）');
 
   console.log('AI 消息示例:', global.__aiMsgs.slice(0, 5));
   console.log('fetch 调用次数:', fetchCount, '(含四角色)');

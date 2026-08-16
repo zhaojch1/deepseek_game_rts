@@ -87,11 +87,13 @@ RTS.CONFIG = {
   },
 
   // ---------------------------------------------------------------- 基地防御（城堡箭塔）
-  baseDefenseRange: 300, // 箭塔射程（px）
-  baseDefenseDamage: 14, // 单支塔箭基础伤害
-  baseDefenseInterval: 1.4, // 每轮箭雨间隔（秒）
-  baseDefenseArrows: 2, // 每轮基础箭数
-  baseDefenseDamagePerLevel: 0.3, // 每级城防提升的塔箭伤害倍率（v8：5 级制下调，防后期箭塔过强）
+  // v11.3：基地大幅强化——重装炮台（30 伤害/箭 × 3 箭齐射、1.0s 攻速、射程 360），
+  // 被围时能有效反打；但要拆还是要出动攻城单位，别让脆皮部队白送。
+  baseDefenseRange: 360, // 箭塔射程（px，v11.3：300→360）
+  baseDefenseDamage: 30, // 单支塔箭基础伤害（v11.3：14→30）
+  baseDefenseInterval: 1.0, // 每轮箭雨间隔（秒，v11.3：1.4→1.0 攻速提升）
+  baseDefenseArrows: 3, // 每轮基础箭数（v11.3：2→3 一次齐射 3 支）
+  baseDefenseDamagePerLevel: 0.25, // 每级城防提升的塔箭伤害倍率（v11.3：0.3→0.25，基础高了防后期过强）
   // 四座角塔相对基地中心的位置（以 baseRadius 为比例的偏移）
   baseTowerOffsets: [
     { dx: -0.85, dy: -0.65 },
@@ -107,18 +109,31 @@ RTS.CONFIG = {
   spawnGateDist: 30, // 单位从城门出生位置（baseRadius + 该偏移，px）
 
   // ---------------------------------------------------------------- 防御哨塔（v9：建筑师建造）
-  towerBuildCost: { wood: 60, stone: 60 }, // 建造哨塔消耗的木材/石料
+  // v11.1：哨塔大幅强化——重装防御塔（高耐久 1500、射程 400、一次两箭），
+  // 拆塔需要攻城武器/集火，建塔才有意义；AI 才有动力广泛布塔。
+  towerBuildCost: { wood: 100, stone: 100 }, // 建造哨塔消耗的木材/石料（v11.1：60→100，与强度匹配）
   towerBuildTime: 3.5, // 建造时长（秒）
-  towerMaxHp: 420, // 哨塔耐久（高，防御力强）
-  towerRadius: 26, // 哨塔占位半径（px，同时是障碍范围）
+  towerMaxHp: 1500, // 哨塔耐久（v11.1：420→1500，≈兵营耐久的重装防御塔）
+  towerRadius: 30, // 哨塔占位半径（px，同时是障碍范围）
   towerDamageMultiplier: 0.85, // 哨塔为坚固建筑，受到武器伤害的减免倍率
-  towerDefenseRange: 290, // 哨塔射箭范围（px）
-  towerDefenseDamage: 13, // 单支塔箭伤害
-  towerDefenseInterval: 1.6, // 每轮箭雨间隔（秒）
-  towerDefenseArrows: 1, // 每轮箭数
+  towerDefenseRange: 400, // 哨塔射箭范围（px，v11.1：290→400，覆盖大片防线）
+  towerDefenseDamage: 30, // 单支塔箭伤害（v11.1：13→30）
+  towerDefenseInterval: 1.4, // 每轮箭雨间隔（秒，v11.1：1.6→1.4）
+  towerDefenseArrows: 2, // 每轮箭数（v11.1：1→2，一次两箭齐射）
   towerFlash: 0.3, // 塔顶闪光时长（秒）
   towerBuildRadius: 26, // 建筑师判定「到达建造点」的距离（px）
   maxTowersPerFaction: 8, // 每阵营哨塔数量上限（防止无限铺塔）
+
+  // ---------------------------------------------------------------- 基地修复（v11.1：基地被摧毁后由建筑师重建）
+  baseRepairCost: { wood: 300, stone: 300 }, // 修复一座被摧毁基地消耗的木材/石料
+  baseRepairTime: 8, // 修复施工时长（秒）
+  baseRepairHpRatio: 0.5, // 修复完成后基地耐久恢复到 maxHp 的比例
+  baseRepairRadius: 60, // 建筑师判定「到达修复点」的距离（px）
+
+  // ---------------------------------------------------------------- 生产并发（v11.2）
+  // 多基地/多兵营下可同时生产多个部队：队列前 productionConcurrencyMax 个订单并行训练，
+  // 超出部分排队等待空出的训练槽。每个订单各自从自己的出生点（origin）出生。
+  productionConcurrencyMax: 5, // 每阵营最多同时训练的单位数（同时生产 5 种/个部队）
 
   // ---------------------------------------------------------------- 兵营（v10.2：建筑师建造的第二出兵点）
   barracksBuildCost: { wood: 150, stone: 100 }, // 建造兵营消耗的木材/石料
@@ -138,8 +153,10 @@ RTS.CONFIG = {
 
   // ---------------------------------------------------------------- AI
   // v10：四级指挥链（主将/进攻副将/防守副将/军需官，全部为大模型）
-  aiDecisionIntervalMin: 3, // 主将调用间隔下限（秒，v4 连续刷新，随时接管）
-  aiDecisionIntervalMax: 6, // 主将调用间隔上限（秒）
+  // v11：主将决策频率降至约 20s 一次（原 3-6s）——战略意图低频稳定，避免「朝令夕改」
+  //      导致部队中途折返；副将（4-7s）与军需官（5-9s）决策频率保持不变。
+  aiDecisionIntervalMin: 18, // 主将调用间隔下限（秒，v11：约 20s 一次）
+  aiDecisionIntervalMax: 22, // 主将调用间隔上限（秒，v11：约 20s 一次）
   aiOfficerIntervalMin: 4, // 副将（进攻/防守）调用间隔下限（秒，v10）
   aiOfficerIntervalMax: 7, // 副将调用间隔上限（秒，v10）
   aiQuartermasterIntervalMin: 5, // 军需官调用间隔下限（秒，v10）
@@ -153,10 +170,16 @@ RTS.CONFIG = {
   aiOfficerOrderLifetime: 8, // 副将命令集的有效期（秒，超期不再重复尝试分配）
   aiMicroHoldRadius: 60, // 微指令「驻守/抢占」的归位半径（px，v10）
   aiKiteDistanceMul: 0.7, // 风筝：远程单位后退的触发距离（射程比例，v10）
+  // v11：斥候（scout）行为——AI 阵营斥候数量上限 + 占领确认时长 + 反击窗口
+  aiMaxScouts: 3, // AI 阵营斥候数量上限（场上+队列；防止「斥候人海冲锋」）
+  aiScoutCaptureSettleTime: 4, // 斥候占领完成后等待「完全占领+无敌人」的驻留秒数（v11）
+  aiScoutCounterattackWindow: 3, // 斥候被攻击后的反击窗口（秒），窗口外不主动交战（v11）
   // v10.1：筑垒节奏（确定性，不依赖 fortify 态势）
   aiFortifyRhythm: 6, // 筑垒节奏检查间隔（秒）：按需产建筑师 + 派闲置建筑师建塔
   aiArchitectMinTime: 90, // 开局多少秒后才允许自动生产建筑师（前期发育不造）
-  aiArchitectTarget: 2, // 保留的建筑师数量目标（超过该数量不再自动补产）
+  aiArchitectTarget: 3, // 保留的建筑师数量目标（v11.1：2→3，广泛布塔 + 修复基地需要更多建筑师）
+  // v11.2：哨塔选址节奏——优势（兵力领先）时把塔修到敌方半场桥头当「进攻桥头堡」
+  aiTowerFrontArmyLead: 5, // 我方兵力领先该数量视为「优势」：哨塔优先修到敌方一侧桥头
   // v10.2：兵营节奏（确定性）——经济强且基地队列持续拥堵时，建筑师在基地附近建兵营
   aiBarracksMinGold: 800, // 当前金币富余阈值（备选条件）
   aiBarracksMinGoldRate: 45, // 金币产生速率阈值（含金矿）：高于该值视为经济强

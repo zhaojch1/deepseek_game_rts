@@ -108,8 +108,11 @@ function mapIntro(m) {
   const lanes = (m.lanes || []).map((l) => l.label || l.id).join('/');
   const res = (m.resources || []).reduce((acc, r) => { acc[r.type] = (acc[r.type] || 0) + 1; return acc; }, {});
   const resStr = Object.entries(res).map(([k, v]) => `${k}×${v}`).join('、');
-  return `${m.id}(${m.name})：尺寸${m.width}×${m.height} ${m.size}图，基地 玩家(${m.playerBase.tx},${m.playerBase.ty}) ` +
-    `敌方(${m.enemyBase.tx},${m.enemyBase.ty})，通道[${lanes}]，资源[${resStr}]。${m.doc || ''}`;
+  // v11：多基地——统计每方基地数量（未定义 playerBases/enemyBases 时为 1）
+  const pb = (m.playerBases && m.playerBases.length) ? m.playerBases.length : 1;
+  const eb = (m.enemyBases && m.enemyBases.length) ? m.enemyBases.length : 1;
+  return `${m.id}(${m.name})：尺寸${m.width}×${m.height} ${m.size}图，基地 玩家${pb}座(主基地${m.playerBase.tx},${m.playerBase.ty}) ` +
+    `敌方${eb}座(主基地${m.enemyBase.tx},${m.enemyBase.ty})，通道[${lanes}]，资源[${resStr}]。${m.doc || ''}`;
 }
 
 const UNITS_INTRO = Array.from(DEFS.units.values()).map(unitIntro).join('\n');
@@ -419,6 +422,20 @@ function buildGeneralPrompt(base) {
     '建筑师(architect)可在指定位置建造防御哨塔（消耗木材与石料，哨塔高耐久、自动射箭），' +
     '态势选 fortify 即可让建筑师在已占资源点/桥头/基地附近自动筑垒；' +
     '哨塔可被敌方摧毁，注意保护。\n\n' +
+    '【v11 多基地】中/大地图每方拥有多座指挥所基地（中图 2 座、大图 3 座，分别在上/中/下路），' +
+    '出兵按「中基地→上基地→下基地」轮转；摧毁敌方全部基地才获胜，' +
+    '进攻时优先集火血最少的一座逐个击破。斥候全阵营最多保持 3 个（生产有上限），' +
+    '斥候不主动交战（被攻击才反击），专心抢资源与侦查。\n\n' +
+    '【v11.1 基地摧毁与修复】基地被打到 0 血即「被摧毁」：停火、不能再出兵、渲染为废墟，' +
+    '但残骸仍占位。被摧毁的基地必须派建筑师(architect)前往修复（消耗木材与石料）才能恢复，' +
+    'myBasesDestroyed/enemyBasesDestroyed 字段会告诉你双方被摧毁的基地数——' +
+    '我方基地被摧毁时要第一时间在经济指令(economyDirective)里要求军需官派建筑师修复，' +
+    '敌方基地被摧毁一座就等于少一座出兵点，优先去拆剩下的。\n\n' +
+    '【v11.1 防御哨塔】防御哨塔是重装防御建筑：耐久 1500（约兵营级）、射程 400（覆盖大片防线）、' +
+    '一次齐射两箭，拆塔必须出动攻城单位或集火——建塔收益极高，' +
+    '应尽量在桥头、资源点、各基地两侧广泛布置哨塔（态势选 fortify 或让军需官在 towers 里指定）。' +
+    'v11.3：我方基地箭塔也已强化（30 伤害×3 箭齐射、攻速 1s、射程 360），别让脆皮部队裸冲敌方基地；' +
+    '拆塔/攻基地时让军需官多造肉盾(wall)扛伤害 + 锤子兵(hammer)输出，坦克顶前面、输出站后面。\n\n' +
     '【v10 指挥指令】除了 stance 等既有字段，请为三名下属各给一句明确指令：\n' +
     'offenseDirective(给进攻副将的一句话，如"主力压中路，骑兵绕上路骚扰敌方伐木场")、\n' +
     'defenseDirective(给防守副将的一句话，如"守住我方金矿与桥头，拦截来犯斥候")、\n' +
@@ -482,8 +499,9 @@ function buildDefensePrompt(base) {
     '【职责】主将的战略意图通过 user 消息中的 stance 与 defenseDirective 传给你。' +
     '你负责把意图翻译成逐单位/逐小队的防守命令：例如主将要求守住金矿，' +
     '你就派最近的刀盾兵去金矿驻守、弓箭手站后排、再派一组人去桥头拦截。\n\n' +
-    '【输入】user 消息包含：我方基地坐标(baseX/baseY)、入侵者列表(intruders：' +
-    '每个含 type/x/y/hp，是接近我方基地/资源点的敌方单位)、我方占领的资源点' +
+    '【输入】user 消息包含：我方基地坐标(baseX/baseY，主基地)、我方基地数量(myBaseCount)、' +
+    '入侵者列表(intruders：' +
+    '每个含 type/x/y/hp，是接近我方任一基地/资源点的敌方单位)、我方占领的资源点' +
     '(ownedNodes：含 id/type/x/y)、各通道桥头(chokepoints：含 lane/x/y)、' +
     '可指挥单位清单(roster：id/type/x/y/state)。\n\n' +
     '【输出 JSON 格式】{"orders":[...], "comment":"不超过30字说明"}\n' +
@@ -522,10 +540,24 @@ function buildQuartermasterPrompt(base) {
     '- production 最多 6 项、每项 count 1-8；参考 enemyArmy 反制：敌方骑兵多→多产长矛兵(spear)；' +
     '敌方远程多→多产骑兵(cavalry)/斥候(scout)切入；敌方肉盾/刀盾多→多产锤子兵(hammer)；' +
     '需要攻城→锤子兵(hammer)+肉盾(wall)；缺资源点→斥候(scout)抢占；fortify 态势→建筑师(architect)；\n' +
+    '- v11.3：拆塔/攻击基地（敌方哨塔1500耐久、基地6000耐久）时必须出肉盾(wall)顶在前面扛塔伤' +
+    '（墙式肉盾 700 生命专为扛伤设计），配锤子兵(hammer)输出；' +
+    '决不能让脆皮（弓箭/斥候/骑兵）裸拆建筑白送，也不要用肉盾去追人（移速最慢）；\n' +
     '- 保持前排（长矛/刀盾/肉盾）与后排（弓箭/弩手/骑射）比例合理，别全造一种；\n' +
     '- upgrade 一次只研究一项，资源不足就 null；攻击/护甲优先，城防在被压时优先，破城/疾行后置；\n' +
-    '- towers 从 user 消息的 towerCandidates 里选 spot id（如 choke_mid/node_3/base_l），' +
-    '最多 4 个，priority 数字越小越先建；建造消耗木材与石料。'
+    '- towers 从 user 消息的 towerCandidates 里选 spot id（如 choke_mid/node_3/base1_l），' +
+    '最多 4 个，priority 数字越小越先建；建造消耗木材与石料。\n\n' +
+    '【v11.1 基地修复与布塔（重要）】' +
+    'user 消息的 destroyedBases（含被摧毁基地的 id/x/y）非空时，' +
+    'production 里必须优先加入建筑师(architect)——被摧毁的基地只有建筑师能修，' +
+    '修好前那座基地停火、停出兵，我方每少一座基地就多一分败局。' +
+    '防御哨塔是重装防御塔（耐久 1500、射程 400、一次两箭，拆塔必须集火/攻城），' +
+    'towers 应优先选择 choke_*（桥头）、node_*（已占资源点）、base1_l/base1_r 等（各基地两侧翼）' +
+    '在地图各处广泛布塔，保护金矿与基地；不必等 fortify 态势，资源富余即可持续铺塔。\n\n' +
+    '【v11.2 按局势布塔】候选位置分两类：防守位（choke_*/node_*/base*_l/base*_r：己方半场）' +
+    '与前线位（front_*：敌方一侧桥头）。参考 myArmy/enemyArmy 判断局势：' +
+    '兵力占优（优势）时优先选 front_* 把塔修到敌方半场当进攻桥头堡，压制敌方资源与出兵；' +
+    '劣势或均势时选 choke_*/base*_* 守家，别把塔修到敌方半场送掉。'
   );
 }
 

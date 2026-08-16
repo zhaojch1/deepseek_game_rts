@@ -327,14 +327,21 @@ RTS.UI = (function () {
   }
 
   function updateSelectionPanel(st) {
-    // 选中己方城堡：显示城堡信息与集结点提示
-    if (st.selectedBase === 'player') {
+    // 选中己方城堡（v11：多基地——按基地对象显示对应指挥所信息）
+    if (st.selectedBase && st.selectedBase.owner === 'player') {
       el.selectionPanel.classList.remove('hidden');
-      const base = st.player.base;
-      el.selectionTitle.textContent = '🏰 指挥所（城堡）';
+      const base = st.selectedBase;
+      const totalBases = (st.player.bases && st.player.bases.length) || 1;
+      const aliveBases = (st.player.bases || [st.player.base]).filter((b) => b.hp > 0).length;
+      const idx = base.id ? Number(String(base.id).split('-')[1]) || 1 : 1;
+      const laneName = totalBases >= 3
+        ? (idx === 1 ? '中路' : idx === 2 ? '上路' : '下路')
+        : (idx === 1 ? '中路' : '上路');
+      el.selectionTitle.textContent = `🏰 指挥所（${laneName}）`;
       el.selectionDetail.textContent =
         `耐久 ${Math.floor(base.hp)}/${base.maxHp} · 箭塔 Lv${RTS.Resources.levelOf(st.player, 'defense')}` +
-        '\n右键点击地面可设置单位出生集结点';
+        (totalBases > 1 ? ` · 我方基地 ${aliveBases}/${totalBases}` : '') +
+        '\n右键点击地面可设置该基地单位出生集结点';
       return;
     }
     if (st.selection.size === 0) {
@@ -361,11 +368,15 @@ RTS.UI = (function () {
       if (counts[t] > 0) names.push(`${RTS.Units.get(t).name}×${counts[t]}`);
     }
     let detail = names.join('  ') + (maxHp > 0 ? `  ·  平均血量 ${Math.round((totalHp / maxHp) * 100)}%` : '');
-    // v9：选中建筑师时提示建造操作
+    // v9：选中建筑师时提示建造操作（v11.1：加基地修复说明）
     if (counts.architect > 0) {
       const Cfg = RTS.CONFIG;
+      const destroyed = (st.player.bases || [st.player.base]).filter((b) => b.destroyed || b.hp <= 0).length;
       detail += `\n👷 建筑师×${counts.architect}：按 B + 左键建造防御哨塔（🪵${Cfg.towerBuildCost.wood} 🪨${Cfg.towerBuildCost.stone}）` +
         `，按 N + 左键建造兵营（🪵${Cfg.barracksBuildCost.wood} 🪨${Cfg.barracksBuildCost.stone}）`;
+      if (destroyed > 0) {
+        detail += `，右键点击被摧毁的基地修复（🪵${Cfg.baseRepairCost.wood} 🪨${Cfg.baseRepairCost.stone}，共 ${destroyed} 座待修）`;
+      }
     }
     el.selectionDetail.textContent = detail;
   }

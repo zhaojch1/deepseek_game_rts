@@ -10,11 +10,11 @@ RTS.Match = (function () {
   function createState(providers) {
     const map = RTS.Maps.current();
     RTS.world = RTS.World.create(map);
-    const bases = RTS.World.placeBases(map);
+    const bases = RTS.World.placeBases(map); // v11：{ player: [base...], enemy: [base...] }
     const Cfg = C();
     const p = providers || { player: 'deepseek', enemy: 'deepseek' };
 
-    const mkFaction = (owner, base) => ({
+    const mkFaction = (owner, baseList) => ({
       owner,
       gold: Cfg.initialGold,
       goldRate: Cfg.baseGoldRate,
@@ -23,7 +23,9 @@ RTS.Match = (function () {
       stone: 0,
       stoneRate: 0,
       populationCap: Cfg.populationCap,
-      base,
+      base: baseList[0], // v11：主基地（bases[0]，通常是中路基地），兼容旧代码
+      bases: baseList,   // v11：该阵营全部基地
+      spawnBaseIdx: 0,   // v11：出兵基地轮转指针（中→上→下）
       productionQueue: [],
       units: new Map(),
       upgrades: { attack: 0, armor: 0, defense: 0, siegecraft: 0, mobility: 0 },
@@ -37,7 +39,7 @@ RTS.Match = (function () {
       player: mkFaction('player', bases.player),
       enemy: mkFaction('enemy', bases.enemy),
       selection: new Set(),
-      selectedBase: null, // 'player' 表示已选中己方城堡（用于设置集结点）
+      selectedBase: null, // v11：已选中的己方基地对象（用于设置集结点）
       damageNumbers: [],
       resources: { nodes: RTS.World.placeResources(map) },
       corpses: [],
@@ -60,17 +62,19 @@ RTS.Match = (function () {
     const st = RTS.state;
     if (st.phase !== 'running') return;
 
-    const playerBase = st.player.base;
-    const enemyBase = st.enemy.base;
+    // v11：多基地——任一方全部基地被摧毁即判负（需逐个击破所有指挥所）
+    const playerAlive = st.player.bases.some((b) => b.hp > 0);
+    const enemyAlive = st.enemy.bases.some((b) => b.hp > 0);
 
-    if (enemyBase.hp <= 0) {
+    if (!enemyAlive) {
       end('victory');
-    } else if (playerBase.hp <= 0) {
+    } else if (!playerAlive) {
       end('defeat');
     } else if (st.time >= C().maxMatchSeconds) {
-      // 20 分钟封顶：按剩余兵力 + 基地耐久判胜
-      const playerScore = st.player.units.size * 10 + playerBase.hp;
-      const enemyScore = st.enemy.units.size * 10 + enemyBase.hp;
+      // 20 分钟封顶：按剩余兵力 + 全部基地耐久判胜
+      const sumHp = (list) => list.reduce((s, b) => s + b.hp, 0);
+      const playerScore = st.player.units.size * 10 + sumHp(st.player.bases);
+      const enemyScore = st.enemy.units.size * 10 + sumHp(st.enemy.bases);
       if (playerScore > enemyScore) end('victory');
       else if (enemyScore > playerScore) end('defeat');
       else end('draw');
@@ -85,9 +89,9 @@ RTS.Match = (function () {
     const timeStr = `${mins}分${secs}秒`;
 
     if (result === 'victory') {
-      RTS.UI.showOverlay('胜利', `摧毁敌方指挥所！用时 ${timeStr}`, 'victory');
+      RTS.UI.showOverlay('胜利', `摧毁敌方全部指挥所！用时 ${timeStr}`, 'victory');
     } else if (result === 'defeat') {
-      RTS.UI.showOverlay('失败', `我方指挥所被摧毁。用时 ${timeStr}`, 'defeat');
+      RTS.UI.showOverlay('失败', `我方全部指挥所被摧毁。用时 ${timeStr}`, 'defeat');
     } else {
       RTS.UI.showOverlay('平局', `双方势均力敌。用时 ${timeStr}`, 'draw');
     }
@@ -183,6 +187,8 @@ RTS.Match = (function () {
           RTS.Towers.update(STEP);
           // v10.2：兵营——推进建筑师施工（兵营无自动攻击）
           RTS.Barracks.updateBuilders(STEP);
+          // v11.1：基地修复——推进建筑师修复被摧毁的基地
+          RTS.Bases.updateRepairers(STEP);
           RTS.Match.updateAllUnits(STEP);
           RTS.Projectiles.update(STEP);
           RTS.Combat.applySeparation();

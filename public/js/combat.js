@@ -85,14 +85,16 @@ RTS.Combat = (function () {
       }
     }
 
-    // 敌方基地（在索敌半径内）
-    const base = enemyFaction.base;
-    if (base && base.hp > 0) {
+    // 敌方基地（v11：多基地——扫描敌方全部指挥所，取最近者）
+    const enemyBases = (enemyFaction.bases && enemyFaction.bases.length) ? enemyFaction.bases : [enemyFaction.base];
+    for (const base of enemyBases) {
+      if (!base || base.hp <= 0) continue;
       const dx = base.x - unit.x;
       const dy = base.y - unit.y;
       const reach = range + base.radius;
       const d2 = dx * dx + dy * dy;
       if (d2 <= reach * reach && d2 <= bestDist) {
+        bestDist = d2;
         best = { kind: 'base', ref: base };
       }
     }
@@ -148,12 +150,21 @@ RTS.Combat = (function () {
 
   /** 结算一次对基地的伤害（v8：siegeMul 来自攻击方阵营的「破城技术」等级） */
   function hitBase(attackValue, base, mul) {
-    if (!base || base.hp <= 0) return 0;
+    if (!base || base.hp <= 0 || base.destroyed) return 0;
     const dmg = Math.max(1, Math.floor(attackValue * C().baseDamageMultiplier * (mul || 1)));
     base.hp -= dmg;
     spawnDamageNumber(base.x + (Math.random() - 0.5) * 24, base.y - base.radius * 0.5, dmg, '#ff8a5a');
     if (base.hp <= 0) {
       base.hp = 0;
+      base.destroyed = true; // v11.1：基地被摧毁——停火/停产出，需建筑师修复重建
+      // v11.3：若被摧毁的是该阵营主基地（faction.base），自动切换到第一座存活基地，
+      // 让 AI 的集结/撤退/防守锚点与新单位的出生集结点跟随新主基地，不再围在废墟旁
+      const fac = RTS.state && RTS.state[base.owner];
+      if (fac && fac.base === base) {
+        const all = (fac.bases && fac.bases.length) ? fac.bases : [fac.base];
+        const alive = all.filter((b) => !b.destroyed && b.hp > 0);
+        if (alive.length > 0) fac.base = alive[0];
+      }
       RTS.Match && RTS.Match.checkEnd();
     }
     return dmg;

@@ -86,22 +86,31 @@ RTS.World = (function () {
     }
   }
 
-  /** 依据地图定义创建双方基地（对称分布：玩家左侧、AI 右侧） */
+  /**
+   * 依据地图定义创建双方基地（对称分布：玩家左侧、AI 右侧）。
+   * v11：多基地支持——地图可定义 playerBases/enemyBases（数组），
+   * 未定义时回退到 playerBase/enemyBase 单基地。返回值：
+   *   { player: [base...], enemy: [base...] }
+   * 各阵营的第一个基地（bases[0]）即主基地（faction.base），
+   * 通常对应「中路基地」；出兵按 中→上→下 轮转（见 Production.decideOrigin）。
+   */
   function placeBases(map) {
     const Cfg = C();
     const ts = Cfg.tileSize;
 
-    function mkBase(tx, ty, owner) {
+    function mkBase(tx, ty, owner, idx) {
       const dirX = owner === 'player' ? 1 : -1; // 集结点朝敌方一侧
       const x = (tx + 0.5) * ts;
       const y = (ty + 0.5) * ts;
       return {
+        id: owner + '-' + (idx + 1),
         x,
         y,
         hp: Cfg.baseMaxHp,
         maxHp: Cfg.baseMaxHp,
         radius: Cfg.baseRadius,
         owner,
+        destroyed: false, // v11.1：hp 归零后标记为「被摧毁」（停火/停产出，需建筑师修复重建）
         defenseCooldown: 0,
         firingFlash: 0,
         towerFlash: [0, 0, 0, 0], // 四角塔各自发射闪光计时
@@ -110,10 +119,12 @@ RTS.World = (function () {
       };
     }
 
-    const player = mkBase(map.playerBase.tx, map.playerBase.ty, 'player');
-    const enemy = mkBase(map.enemyBase.tx, map.enemyBase.ty, 'enemy');
-    markBaseBlocked(player);
-    markBaseBlocked(enemy);
+    const pDefs = (map.playerBases && map.playerBases.length) ? map.playerBases : [map.playerBase];
+    const eDefs = (map.enemyBases && map.enemyBases.length) ? map.enemyBases : [map.enemyBase];
+    const player = pDefs.map((b, i) => mkBase(b.tx, b.ty, 'player', i));
+    const enemy = eDefs.map((b, i) => mkBase(b.tx, b.ty, 'enemy', i));
+    player.forEach((b) => markBaseBlocked(b));
+    enemy.forEach((b) => markBaseBlocked(b));
     return { player, enemy };
   }
 

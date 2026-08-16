@@ -94,8 +94,8 @@ for (const f of files) {
 
   RTS.state = {
     time: 0, phase: 'running', fps: 0, debugMode: false,
-    player: mkFaction('player', bases.player),
-    enemy: mkFaction('enemy', bases.enemy),
+    player: mkFaction('player', bases.player[0]),
+    enemy: mkFaction('enemy', bases.enemy[0]),
     selection: new Set(), selectedBase: null,
     damageNumbers: [],
     resources: { nodes: RTS.World.placeResources(map) },

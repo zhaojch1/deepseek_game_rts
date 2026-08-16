@@ -33,6 +33,10 @@ RTS.Production = (function () {
    * v10.2：决定新订单的出生点——
    * 基地生产队列超过 baseQueueBarracksThreshold 个时，多余的订单从兵营出生
    * （分摊基地训练压力；无可用兵营时全部从基地出生）。
+   * v11：多基地出兵——从基地出生的订单按「中基地 → 上基地 → 下基地」轮转
+   * （faction.spawnBaseIdx 依次指向 bases[0]、bases[1]、bases[2]…），
+   * 即同时点三次出兵卡片时，先从中路基地出、再上路基地、再下路基地。
+   * v11.1：被摧毁的基地（destroyed）不参与轮转，直接跳过（修好后才恢复出兵）。
    */
   function decideOrigin(faction) {
     const Cfg = C();
@@ -40,7 +44,17 @@ RTS.Production = (function () {
       const barracks = RTS.Barracks ? RTS.Barracks.ofOwner(faction.owner, faction.base.x, faction.base.y) : [];
       if (barracks.length > 0) return { kind: 'barracks', id: barracks[0].id };
     }
-    return { kind: 'base' };
+    const bases = (faction.bases && faction.bases.length) ? faction.bases : [faction.base];
+    // v11.1：在 bases 数组内轮转，跳过被摧毁的基地（index 即真实数组下标）
+    let bi = (faction.spawnBaseIdx || 0) % bases.length;
+    let found = false;
+    for (let k = 0; k < bases.length; k++) {
+      const idx = (bi + k) % bases.length;
+      if (!bases[idx].destroyed && bases[idx].hp > 0) { bi = idx; found = true; break; }
+    }
+    if (!found) bi = 0; // 全部被摧毁（将判负）：兜底指向第一座
+    faction.spawnBaseIdx = (bi + 1) % bases.length; // 轮转：中→上→下→中…
+    return { kind: 'base', baseIndex: bi };
   }
 
   function order(faction, type) {
@@ -72,7 +86,19 @@ RTS.Production = (function () {
   }
 
   function spawnUnit(faction, type, origin) {
-    const base = faction.base;
+    // v11：多基地出生点——订单 origin.baseIndex 指向该阵营第几座基地（0=中路主基地）
+    // v11.1：若该基地已被摧毁（不应发生，decideOrigin 已跳过），回退到最近的存活基地
+    let base;
+    if (origin && origin.kind === 'base') {
+      const bases = (faction.bases && faction.bases.length) ? faction.bases : [faction.base];
+      let b = bases[origin.baseIndex] || faction.base;
+      if (b.destroyed || b.hp <= 0) {
+        b = bases.find((x) => !x.destroyed && x.hp > 0) || faction.base;
+      }
+      base = b;
+    } else {
+      base = faction.base;
+    }
     const Cfg = C();
     // v10.2：出生点选择——兵营（若该订单指定且兵营仍存活）或基地城门
     let x;
@@ -124,16 +150,29 @@ RTS.Production = (function () {
     faction.goldRate = currentGoldRate(time);
     faction.gold = Math.min(C().goldCap, faction.gold + faction.goldRate * dt);
 
-    // 生产队列
+    // v11.2：并行训练——多基地/多兵营下，队列前 productionConcurrencyMax 个订单
+    // 同时训练（每个订单从自己的 origin 出生），超出部分排队等待空出的训练槽。
     const q = faction.productionQueue;
     if (q.length === 0) return;
-    const item = q[0];
-    if (item.status === 'queued') item.status = 'training';
-    item.elapsed += dt;
-    if (item.elapsed >= item.totalTime) {
-      q.shift();
-      spawnUnit(faction, item.type, item.origin);
-      // v7.1：训练完成属普通消息，不再弹 toast
+    const maxConcurrent = C().productionConcurrencyMax;
+    let training = 0;
+    for (const item of q) if (item.status === 'training') training++;
+    // 空出训练槽：把队列中靠前的 queued 订单升级为 training
+    let slots = Math.max(0, maxConcurrent - training);
+    for (const item of q) {
+      if (slots <= 0) break;
+      if (item.status === 'queued') { item.status = 'training'; slots--; }
+    }
+    // 并行推进所有 training 订单（从后往前遍历，splice 安全）
+    for (let i = q.length - 1; i >= 0; i--) {
+      const item = q[i];
+      if (item.status !== 'training') continue;
+      item.elapsed += dt;
+      if (item.elapsed >= item.totalTime) {
+        q.splice(i, 1);
+        spawnUnit(faction, item.type, item.origin);
+        // v7.1：训练完成属普通消息，不再弹 toast
+      }
     }
   }
 

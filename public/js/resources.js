@@ -43,12 +43,14 @@ RTS.Resources = (function () {
     faction[cfg.resource] -= check.cost;
     faction.upgrades[track] += 1;
 
-    // 城防升级：基地耐久上限 + 当前耐久同步提升
+    // 城防升级：全部基地耐久上限 + 当前耐久同步提升（v11：多基地）
     if (track === 'defense') {
-      const base = faction.base;
       const bonus = cfg.hpBonus;
-      base.maxHp += bonus;
-      base.hp += bonus;
+      const bases = (faction.bases && faction.bases.length) ? faction.bases : [faction.base];
+      for (const base of bases) {
+        base.maxHp += bonus;
+        base.hp += bonus;
+      }
     }
     return true;
   }
@@ -148,46 +150,51 @@ RTS.Resources = (function () {
     const st = RTS.state;
     for (const owner of ['player', 'enemy']) {
       const faction = st[owner];
-      const base = faction.base;
-      if (base.firingFlash > 0) base.firingFlash = Math.max(0, base.firingFlash - dt);
-      // 各角塔闪光衰减
-      if (base.towerFlash) {
-        for (let i = 0; i < base.towerFlash.length; i++) {
-          if (base.towerFlash[i] > 0) base.towerFlash[i] = Math.max(0, base.towerFlash[i] - dt);
-        }
-      }
-      base.defenseCooldown -= dt;
-      if (base.defenseCooldown > 0) continue;
-
-      const lvl = levelOf(faction, 'defense');
-      const range = C().baseDefenseRange;
-      const candidates = RTS.Combat.query(base.x, base.y, range).filter(
-        (u) => u.owner !== owner && u.hp > 0
-      );
-      if (candidates.length === 0) continue;
-      candidates.sort((a, b) => RTS.Unit.distTo(a, base.x, base.y) - RTS.Unit.distTo(b, base.x, base.y));
-
-      const arrows = Math.min(
-        C().baseDefenseArrows + lvl * C().upgrades.defense.arrowsPerLevel,
-        candidates.length
-      );
-      base.defenseCooldown = C().baseDefenseInterval;
-      base.firingFlash = C().baseTowerFlash;
-      const towers = RTS.World.baseTowerPositions(base);
-      for (let i = 0; i < arrows; i++) {
-        // 选择离目标最近的角塔发射，塔顶闪光
-        const tgt = candidates[i];
-        let bestT = 0;
-        let bestD = Infinity;
-        for (let t = 0; t < towers.length; t++) {
-          const d = RTS.Unit.distTo(tgt, towers[t].x, towers[t].y);
-          if (d < bestD) {
-            bestD = d;
-            bestT = t;
+      // v11：多基地——每座基地各自拥有角塔防御（独立冷却/闪光）
+      // v11.1：被摧毁的基地（destroyed）停止开火，等待建筑师修复
+      const bases = (faction.bases && faction.bases.length) ? faction.bases : [faction.base];
+      for (const base of bases) {
+        if (base.hp <= 0 || base.destroyed) continue;
+        if (base.firingFlash > 0) base.firingFlash = Math.max(0, base.firingFlash - dt);
+        // 各角塔闪光衰减
+        if (base.towerFlash) {
+          for (let i = 0; i < base.towerFlash.length; i++) {
+            if (base.towerFlash[i] > 0) base.towerFlash[i] = Math.max(0, base.towerFlash[i] - dt);
           }
         }
-        if (base.towerFlash) base.towerFlash[bestT] = C().baseTowerFlash;
-        RTS.Projectiles.spawnTowerArrow(base, { kind: 'unit', ref: tgt }, towerDamage(lvl), bestT);
+        base.defenseCooldown -= dt;
+        if (base.defenseCooldown > 0) continue;
+
+        const lvl = levelOf(faction, 'defense');
+        const range = C().baseDefenseRange;
+        const candidates = RTS.Combat.query(base.x, base.y, range).filter(
+          (u) => u.owner !== owner && u.hp > 0
+        );
+        if (candidates.length === 0) continue;
+        candidates.sort((a, b) => RTS.Unit.distTo(a, base.x, base.y) - RTS.Unit.distTo(b, base.x, base.y));
+
+        const arrows = Math.min(
+          C().baseDefenseArrows + lvl * C().upgrades.defense.arrowsPerLevel,
+          candidates.length
+        );
+        base.defenseCooldown = C().baseDefenseInterval;
+        base.firingFlash = C().baseTowerFlash;
+        const towers = RTS.World.baseTowerPositions(base);
+        for (let i = 0; i < arrows; i++) {
+          // 选择离目标最近的角塔发射，塔顶闪光
+          const tgt = candidates[i];
+          let bestT = 0;
+          let bestD = Infinity;
+          for (let t = 0; t < towers.length; t++) {
+            const d = RTS.Unit.distTo(tgt, towers[t].x, towers[t].y);
+            if (d < bestD) {
+              bestD = d;
+              bestT = t;
+            }
+          }
+          if (base.towerFlash) base.towerFlash[bestT] = C().baseTowerFlash;
+          RTS.Projectiles.spawnTowerArrow(base, { kind: 'unit', ref: tgt }, towerDamage(lvl), bestT);
+        }
       }
     }
   }

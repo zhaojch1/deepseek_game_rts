@@ -158,6 +158,16 @@ RTS.AI = (function () {
     return RTS.state[ai.owner === 'player' ? 'enemy' : 'player'];
   }
 
+  /** v11：某阵营的全部基地（兼容旧单基地结构） */
+  function basesOf(faction) {
+    return (faction.bases && faction.bases.length) ? faction.bases : [faction.base];
+  }
+
+  /** v11.2：我方兵力相对敌方的领先数（>0 优势；用于哨塔前线/防守选址与建塔优先级） */
+  function armyAdvantage(ai) {
+    return countArmy(mine(ai)).total - countArmy(theirs(ai)).total;
+  }
+
   // ------------------------------------------------------------------ 统计工具
 
   function countArmy(faction) {
@@ -198,8 +208,21 @@ RTS.AI = (function () {
     return C().worldHeight / 2;
   }
 
+  /**
+   * v11：分路进攻的目标点——该通道对应的敌方基地（按 y 最近匹配）。
+   * 三路各有一座基地的大地图上，攻上路就打敌方上路基地；单基地地图回退到主基地。
+   * v11.3：被摧毁的敌方基地不选为目标（单位不再聚集到废墟）。
+   */
   function laneTarget(ai, lane) {
-    return { x: theirs(ai).base.x, y: laneY(lane) };
+    const y = laneY(lane);
+    const oppBases = aliveBasesOf(theirs(ai));
+    let best = oppBases[0];
+    let bd = Infinity;
+    for (const b of oppBases) {
+      const d = Math.abs(b.y - y);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return { x: best.x, y: best.y };
   }
 
   /** 地图定义的所有进攻通道 id（用于分路进攻） */
@@ -289,12 +312,22 @@ RTS.AI = (function () {
 
   // ------------------------------------------------------------------ 高层态势决策
 
+  /** 某阵营存活（未摧毁）的基地；全部被摧毁时兜底返回全部（反正即将判负） */
+  function aliveBasesOf(faction) {
+    const all = basesOf(faction);
+    const alive = all.filter((b) => !b.destroyed && b.hp > 0);
+    return alive.length > 0 ? alive : all;
+  }
+
+  /** v11：进入我方任一基地防御半径的敌方单位数量（v11.3：只统计存活基地） */
   function intruderCount(ai) {
-    const base = mine(ai).base;
+    const myBases = aliveBasesOf(mine(ai));
     let n = 0;
     theirs(ai).units.forEach((u) => {
       if (u.hp <= 0) return;
-      if (RTS.Unit.distTo(u, base.x, base.y) < C().aiDefenseRadius) n++;
+      for (const b of myBases) {
+        if (RTS.Unit.distTo(u, b.x, b.y) < C().aiDefenseRadius) { n++; break; }
+      }
     });
     return n;
   }
@@ -309,15 +342,17 @@ RTS.AI = (function () {
     return out;
   }
 
-  /** 离我方基地最近的敌方单位 */
+  /** 离我方任一存活基地最近的敌方单位（v11.3：被摧毁基地不算防守点） */
   function nearestIntruder(ai) {
-    const base = mine(ai).base;
+    const myBases = aliveBasesOf(mine(ai));
     let best = null;
     let bd = Infinity;
     theirs(ai).units.forEach((u) => {
       if (u.hp <= 0) return;
-      const d = RTS.Unit.distTo(u, base.x, base.y);
-      if (d < bd) { bd = d; best = u; }
+      for (const b of myBases) {
+        const d = RTS.Unit.distTo(u, b.x, b.y);
+        if (d < bd) { bd = d; best = u; }
+      }
     });
     return best;
   }
@@ -370,10 +405,12 @@ RTS.AI = (function () {
       weights[ai.strategy.armyFocus] += 20;
     }
 
-    // 目标侧重：主攻基地时多造高机动/远程，主攻经济时多造快速单位
+    // 目标侧重：主攻基地时多造高机动/远程 + 肉盾扛伤 + 攻城输出（v11.3）
     if (ai.strategy.targetFocus === 'base') {
       for (const id of ids) {
         const tags = (RTS.Units.get(id).tags || []);
+        if (tags.includes('tank')) weights[id] += 10;   // v11.3：拆塔/攻基地必须出肉盾扛伤害
+        if (tags.includes('siege')) weights[id] += 8;   // 锤子兵：攻城输出
         if (tags.includes('cavalry') || tags.includes('fast')) weights[id] += 6;
         if (tags.includes('ranged')) weights[id] += 3;
       }
@@ -385,7 +422,16 @@ RTS.AI = (function () {
     }
 
     // v9：态势驱动的兵种侧重——筑垒多造建筑师、侦查/抢资源多造斥候
-    if (ai.phase === PHASE.fortify) {
+    // v11.3：进攻/围城态势多出肉盾（扛塔伤）+ 攻城单位
+    const offensivePhase =
+      ai.phase === PHASE.siege || ai.phase === PHASE.all_in ||
+      ai.phase === PHASE.assault_mid || ai.phase === PHASE.assault_top ||
+      ai.phase === PHASE.assault_bottom || ai.phase === PHASE.pincer ||
+      ai.phase === PHASE.sneak || ai.phase === PHASE.feint;
+    if (offensivePhase) {
+      weights.wall = (weights.wall || 1) + 8;
+      weights.hammer = (weights.hammer || 1) + 6;
+    } else if (ai.phase === PHASE.fortify) {
       weights.architect = (weights.architect || 1) + 20;
     } else if (ai.phase === PHASE.scout || ai.phase === PHASE.scout_hold || ai.phase === PHASE.counter_scout) {
       weights.scout = (weights.scout || 1) + 12;
@@ -414,6 +460,19 @@ RTS.AI = (function () {
    * v10.2：人口接近上限且仍需建筑师时，把名额优先让给建筑师（否则人口满后
    * 永远补不上建筑师，兵营/哨塔无从谈起——AI 会「金币太多却建不了兵营」）。
    */
+  /**
+   * v11：AI 阵营斥候数量上限检查（防止「斥候人海冲锋」）——
+   * 场上 + 队列中的斥候达到 aiMaxScouts 后，AI 不再生产斥候。
+   */
+  function scoutCapOk(controlled) {
+    const limit = C().aiMaxScouts;
+    let inField = 0;
+    controlled.units.forEach((u) => { if (u.hp > 0 && u.type === 'scout') inField++; });
+    let inQueue = 0;
+    for (const q of controlled.productionQueue) if (q.type === 'scout') inQueue++;
+    return (inField + inQueue) < limit;
+  }
+
   function produce(ai, boost) {
     const controlled = mine(ai);
     const qm = ai.qm;
@@ -430,8 +489,9 @@ RTS.AI = (function () {
       let type = null;
       let fromPlan = false;
       if (qm && qm.plan && qm.plan.length > 0) {
-        // 找计划中第一项「当前可下单」的兵种
+        // 找计划中第一项「当前可下单」的兵种（v11：斥候达上限时跳过计划中的斥候项）
         for (let i = 0; i < qm.plan.length; i++) {
+          if (qm.plan[i].type === 'scout' && !scoutCapOk(controlled)) continue;
           if (RTS.Production.canOrder(controlled, qm.plan[i].type).ok) {
             type = qm.plan[i].type;
             fromPlan = true;
@@ -441,6 +501,8 @@ RTS.AI = (function () {
         if (!type) break; // 人口满或全部缺钱：等待
       } else {
         type = decideProductionType(ai, countArmy(theirs(ai)));
+        // v11：加权随机选中斥候但已达上限：跳过本回合（下回合再选）
+        if (type === 'scout' && !scoutCapOk(controlled)) continue;
       }
       if (!type) break;
       const check = RTS.Production.canOrder(controlled, type);
@@ -612,7 +674,17 @@ RTS.AI = (function () {
 
   function defend(ai) {
     const controlled = mine(ai);
-    const base = controlled.base;
+    // v11：多基地——选择「入侵最严重」的存活基地作为防守重心（v11.3：被摧毁基地不防守）
+    const myBases = aliveBasesOf(controlled);
+    let base = controlled.base;
+    let bestThreat = -1;
+    for (const b of myBases) {
+      let t = 0;
+      theirs(ai).units.forEach((p) => {
+        if (p.hp > 0 && RTS.Unit.distTo(p, b.x, b.y) < C().aiDefenseRadius) t++;
+      });
+      if (t > bestThreat) { bestThreat = t; base = b; }
+    }
     const radius = C().aiDefenseRadius;
     // v10：基地被大部队入侵时，连微指令单位也强制接管回防（清掉其微指令）
     const urgent = intruderCount(ai) >= C().aiDefenseIntruders;
@@ -774,7 +846,22 @@ RTS.AI = (function () {
     const controlled = mine(ai);
     let best = null;
     if (target === 'base') {
-      best = { kind: 'base', ref: theirs(ai).base };
+      // v11：多基地——优先集火「血量比例最低」的敌方基地（逐个击破），同为满血取最近
+      // v11.1：已摧毁的基地（destroyed）不选为目标
+      const oppBases = basesOf(theirs(ai));
+      let bestScore = -Infinity;
+      let bestDist = Infinity;
+      for (const b of oppBases) {
+        if (b.hp <= 0 || b.destroyed) continue;
+        const score = 1 - b.hp / b.maxHp; // 1=即将摧毁，0=满血
+        const d = RTS.Unit.distTo(b, controlled.base.x, controlled.base.y);
+        if (score > bestScore + 0.001 || (Math.abs(score - bestScore) <= 0.001 && d < bestDist)) {
+          bestScore = score;
+          bestDist = d;
+          best = { kind: 'base', ref: b };
+        }
+      }
+      if (!best) best = { kind: 'base', ref: oppBases[0] };
     } else {
       let nd = Infinity;
       const base = controlled.base;
@@ -1032,17 +1119,21 @@ RTS.AI = (function () {
   }
 
   /** 按命令挑选具体单位：unitId 精确指定，group+count 按兵种就近挑选（逐单位分配） */
-  function unitsForOrder(ai, order, target) {
+  function unitsForOrder(ai, role, order, target) {
     const controlled = mine(ai);
     const out = [];
+    const other = otherRole(role);
     if (order.unitId) {
       const u = controlled.units.get(order.unitId);
-      if (u && u.hp > 0 && !microReserved(u)) out.push(u);
+      if (u && u.hp > 0 && !microReserved(u) &&
+          !(u.microOrder && u.microOrder.source === other)) out.push(u);
     } else if (order.group && RTS.Units.has(order.group)) {
       const cands = [];
       controlled.units.forEach((u) => {
         if (u.hp <= 0 || u.type !== order.group) return;
         if (microReserved(u)) return;
+        // v11：另一名副将已下单的单位不再选（各自控制自己订单的单位）
+        if (u.microOrder && u.microOrder.source === other) return;
         cands.push(u);
       });
       if (target) {
@@ -1051,6 +1142,11 @@ RTS.AI = (function () {
       for (let i = 0; i < cands.length && out.length < order.count; i++) out.push(cands[i]);
     }
     return out;
+  }
+
+  /** v11：另一名副将的角色名（'offense' ↔ 'defense'） */
+  function otherRole(role) {
+    return role === 'offense' ? 'defense' : 'offense';
   }
 
   /** 落地某副将的命令集：逐条解析目标列表 → 挑选单位 → 逐个分配微指令（带去抖） */
@@ -1062,7 +1158,7 @@ RTS.AI = (function () {
     for (const order of orders) {
       const targets = resolveTargets(ai, order.task, order.target, order.lane, order.count);
       if (targets.length === 0) continue;
-      const units = unitsForOrder(ai, order, targets[0]);
+      const units = unitsForOrder(ai, role, order, targets[0]);
       if (units.length === 0) continue;
       for (let i = 0; i < units.length; i++) {
         const u = units[i];
@@ -1097,6 +1193,8 @@ RTS.AI = (function () {
    *  - capture 完成（节点已占且安全）→ 不释放，而是链式续接到「最近的下一个无主资源点」：
    *    斥候行为变成可预测的确定性状态机「赴矿 → 占领 → 奔赴最近下一矿」，不会折返；
    *    所有节点被占完才释放（回到池子听候其他调遣）。
+   *  - v11：斥候占领后需「完全占领 + 安全确认」满 aiScoutCaptureSettleTime 秒
+   *    才奔赴下一个据点（节点控制值要到 ±1，且期间无敌人靠近），否则继续驻守等待。
    *  - raid 完成（劫掠目标归己方）→ 释放。
    */
   function expireMicroOrders(ai, time) {
@@ -1110,19 +1208,27 @@ RTS.AI = (function () {
       }
       if (m.kind === 'capture' && m.nodeId) {
         const n = nodesOf(null).find((x) => x.id === m.nodeId);
-        if (n && n.owner === ai.owner && intrudersNear(ai, n.x, n.y, n.radius * 1.3).length === 0) {
-          const next = nextCaptureTarget(ai, u, n.type);
-          if (next) {
-            // 链式续接：奔赴下一个最近的无主资源点（占领 → 再续接 → …）
-            m.nodeId = next.id;
-            m.x = next.x;
-            m.y = next.y;
-            m.radius = next.radius * 0.8;
-            m.until = time + C().aiMicroOrderLifetime;
-            RTS.Unit.orderAttackMove(u, next.x, next.y);
-          } else {
-            RTS.Unit.clearMicro(u); // 无主节点占完：释放，听候其他调遣
+        const fullyCaptured = n && n.owner === ai.owner && Math.abs(n.control) >= 0.99;
+        const safe = n && intrudersNear(ai, n.x, n.y, n.radius * 1.3).length === 0;
+        if (fullyCaptured && safe) {
+          if (m.settledAt == null) m.settledAt = time; // 开始「完全占领确认」计时
+          if (time - m.settledAt >= C().aiScoutCaptureSettleTime) {
+            const next = nextCaptureTarget(ai, u, n.type);
+            if (next) {
+              // 链式续接：奔赴下一个最近的无主资源点（占领 → 再续接 → …）
+              m.nodeId = next.id;
+              m.x = next.x;
+              m.y = next.y;
+              m.radius = next.radius * 0.8;
+              m.until = time + C().aiMicroOrderLifetime;
+              m.settledAt = null; // v11：重置确认计时
+              RTS.Unit.orderAttackMove(u, next.x, next.y);
+            } else {
+              RTS.Unit.clearMicro(u); // 无主节点占完：释放，听候其他调遣
+            }
           }
+        } else {
+          m.settledAt = null; // v11：尚未完全占领 / 有敌人靠近：等待并重置确认计时
         }
       } else if (m.kind === 'raid' && m.nodeId) {
         const n = nodesOf(null).find((x) => x.id === m.nodeId);
@@ -1133,13 +1239,20 @@ RTS.AI = (function () {
 
   // ------------------------------------------------------------------ v10：四级指挥链请求
 
-  /** 构建副将可指挥单位清单（优先空闲单位，控 token） */
-  function buildRoster(ai, cap) {
+  /**
+   * 构建副将可指挥单位清单（优先空闲单位，控 token）。
+   * v11：forRole 指定后，排除已被「另一名副将」微指令占用的单位——
+   * 两位副将各自只看到自己订单可指挥的单位（先经军需官侧的协调器分区，
+   * 避免 LLM 下达到同一批单位造成「一个单位多个领导」的混乱）。
+   */
+  function buildRoster(ai, cap, forRole) {
     const controlled = mine(ai);
+    const skipSource = forRole ? otherRole(forRole) : null;
     const idle = [];
     const busy = [];
     controlled.units.forEach((u) => {
       if (u.hp <= 0) return;
+      if (skipSource && u.microOrder && u.microOrder.source === skipSource) return;
       (u.state === 'idle' ? idle : busy).push(u);
     });
     const capN = cap || C().aiOfficerRosterCap;
@@ -1155,7 +1268,8 @@ RTS.AI = (function () {
     return nodesOf(ownerFilter).map((n) => ({ id: n.id, type: n.type, x: Math.round(n.x), y: Math.round(n.y) }));
   }
 
-  /** 可建哨塔的位置候选（军需官从这些 spot 里选） */
+  /** 可建哨塔的位置候选（军需官从这些 spot 里选；v11.1：每座基地两侧翼都给出点位）
+   *  v11.2：优势（兵力领先）时追加「前线桥头堡」候选（敌方一侧桥头，压制敌方半场） */
   function buildTowerCandidates(ai) {
     const me = mine(ai);
     const opp = theirs(ai);
@@ -1164,11 +1278,19 @@ RTS.AI = (function () {
     laneIds().forEach((l) => {
       cands.push({ spot: 'choke_' + l, desc: '桥头(' + l + ')', x: me.base.x + dirX * 260, y: laneY(l) });
     });
+    // v11.2：优势 → 敌方一侧桥头（进攻桥头堡，随推进前压）
+    if (armyAdvantage(ai) >= C().aiTowerFrontArmyLead) {
+      laneIds().forEach((l) => {
+        cands.push({ spot: 'front_' + l, desc: '前线桥头(' + l + ')', x: opp.base.x - dirX * 260, y: laneY(l) });
+      });
+    }
     nodesOf(ai.owner).slice(0, 6).forEach((n) => {
       cands.push({ spot: 'node_' + n.id, desc: '资源点(' + n.type + ' #' + n.id + ')', x: n.x + dirX * 70, y: n.y });
     });
-    cands.push({ spot: 'base_l', desc: '基地上方侧翼', x: me.base.x + dirX * 200, y: me.base.y - 90 });
-    cands.push({ spot: 'base_r', desc: '基地下方侧翼', x: me.base.x + dirX * 200, y: me.base.y + 90 });
+    basesOf(me).forEach((b, i) => {
+      cands.push({ spot: 'base' + (i + 1) + '_l', desc: '基地' + (i + 1) + '上方侧翼', x: b.x + dirX * 200, y: b.y - 90 });
+      cands.push({ spot: 'base' + (i + 1) + '_r', desc: '基地' + (i + 1) + '下方侧翼', x: b.x + dirX * 200, y: b.y + 90 });
+    });
     return cands.map((c) => ({ spot: c.spot, desc: c.desc, x: Math.round(c.x), y: Math.round(c.y) }));
   }
 
@@ -1187,6 +1309,9 @@ RTS.AI = (function () {
       stance: ai.phase,
     };
     if (role === 'general') {
+      // v11：多基地——baseHp 取「最弱基地」血量，并上报双方基地数量
+      const myBases = basesOf(controlled);
+      const enBases = basesOf(opponent);
       return Object.assign({}, base, {
         myGold: Math.round(controlled.gold),
         myWood: Math.round(controlled.wood),
@@ -1195,8 +1320,13 @@ RTS.AI = (function () {
         enemyPop: opponent.units.size,
         myArmy: armyCountsObj(myArmy),
         enemyArmy: armyCountsObj(opponentArmy),
-        baseHp: Math.round(controlled.base.hp),
-        enemyBaseHp: Math.round(opponent.base.hp),
+        baseHp: Math.round(Math.min(...myBases.map((b) => b.hp))),
+        enemyBaseHp: Math.round(Math.min(...enBases.map((b) => b.hp))),
+        myBaseCount: myBases.length,
+        enemyBaseCount: enBases.length,
+        // v11.1：双方被摧毁的基地数（提示 LLM 需要派建筑师修复 / 进攻缺口）
+        myBasesDestroyed: myBases.filter((b) => b.destroyed || b.hp <= 0).length,
+        enemyBasesDestroyed: enBases.filter((b) => b.destroyed || b.hp <= 0).length,
         myUpgrades: {
           attack: controlled.upgrades.attack,
           armor: controlled.upgrades.armor,
@@ -1220,7 +1350,7 @@ RTS.AI = (function () {
         targetFocus: ai.strategy.targetFocus,
         myArmy: armyCountsObj(myArmy),
         enemyArmy: armyCountsObj(opponentArmy),
-        roster: buildRoster(ai),
+        roster: buildRoster(ai, undefined, 'offense'), // v11：仅含进攻副将可指挥的单位
         nodes: {
           unowned: unowned.slice(0, 8).map((n) => ({ id: n.id, type: n.type, x: Math.round(n.x), y: Math.round(n.y) })),
           enemy: nodesOf(opponent.owner).slice(0, 6).map((n) => ({ id: n.id, type: n.type, x: Math.round(n.x), y: Math.round(n.y) })),
@@ -1233,10 +1363,15 @@ RTS.AI = (function () {
     if (role === 'defense') {
       const ctrlBase = controlled.base;
       const intruders = [];
+      // v11：多基地——上报靠近我方任一基地的入侵者
+      const myBases = basesOf(controlled);
       theirs(ai).units.forEach((u) => {
         if (u.hp <= 0) return;
-        if (RTS.Unit.distTo(u, ctrlBase.x, ctrlBase.y) < C().aiDefenseRadius * 1.6) {
-          intruders.push({ id: u.id, type: u.type, x: Math.round(u.x), y: Math.round(u.y), hp: Math.round(u.hp) });
+        for (const b of myBases) {
+          if (RTS.Unit.distTo(u, b.x, b.y) < C().aiDefenseRadius * 1.6) {
+            intruders.push({ id: u.id, type: u.type, x: Math.round(u.x), y: Math.round(u.y), hp: Math.round(u.hp) });
+            break;
+          }
         }
       });
       intruders.sort((a, b) => RTS.Unit.distTo(a, ctrlBase.x, ctrlBase.y) - RTS.Unit.distTo(b, ctrlBase.x, ctrlBase.y));
@@ -1245,14 +1380,16 @@ RTS.AI = (function () {
         baseX: Math.round(ctrlBase.x),
         baseY: Math.round(ctrlBase.y),
         baseHp: Math.round(ctrlBase.hp),
-        enemyBaseHp: Math.round(opponent.base.hp),
+        enemyBaseHp: Math.round(Math.min(...basesOf(opponent).map((b) => b.hp))),
+        myBaseCount: myBases.length,
+        enemyBaseCount: basesOf(opponent).length,
         intruders: intruders.slice(0, 12),
         ownedNodes: nodesOf(ai.owner).slice(0, 8).map((n) => ({ id: n.id, type: n.type, x: Math.round(n.x), y: Math.round(n.y) })),
         chokepoints: laneIds().map((l) => {
           const dirX = opponent.base.x > controlled.base.x ? 1 : -1;
           return { lane: l, x: Math.round(controlled.base.x + dirX * 220), y: Math.round(laneY(l)) };
         }),
-        roster: buildRoster(ai),
+        roster: buildRoster(ai, undefined, 'defense'), // v11：仅含防守副将可指挥的单位
         myTowers: (RTS.Towers ? RTS.Towers.towerCount(ai.owner) : 0),
         enemyTowers: (RTS.Towers ? RTS.Towers.towerCount(opponent.owner) : 0),
       });
@@ -1278,6 +1415,14 @@ RTS.AI = (function () {
       },
       myNodes: nodesOf(ai.owner).length,
       enemyNodes: nodesOf(opponent.owner).length,
+      // v11.1：基地状态——被摧毁的基地列表（需派建筑师修复）
+      myBaseCount: basesOf(controlled).length,
+      myBasesAlive: basesOf(controlled).filter((b) => !b.destroyed && b.hp > 0).length,
+      destroyedBases: (RTS.Bases ? RTS.Bases.destroyedBases(ai.owner) : []).map((b) => ({
+        id: b.id,
+        x: Math.round(b.x),
+        y: Math.round(b.y),
+      })),
       myTowers: (RTS.Towers ? RTS.Towers.towerCount(ai.owner) : 0),
       enemyTowers: (RTS.Towers ? RTS.Towers.towerCount(opponent.owner) : 0),
       towerCandidates: buildTowerCandidates(ai),
@@ -1548,19 +1693,25 @@ RTS.AI = (function () {
     expireMicroOrders(ai, time);
 
     // 3.1) v10.1/v10.2：基建节奏（确定性，不依赖态势）——
-    //      资源富余时按需生产建筑师；有闲置建筑师时优先建兵营（金币富余），否则建哨塔
+    //      资源富余时按需生产建筑师；有闲置建筑师时：
+    //      v11.1 优先修复被摧毁的基地 → v11.2 优势时优先建哨塔（前线桥头堡）→
+    //      其次建兵营（劣势/均势先解决产能瓶颈）→ 再铺哨塔
     if (ai.fortifyTimer <= 0) {
       ai.fortifyTimer = C().aiFortifyRhythm;
       maybeProduceArchitect(ai);
       if (hasIdleArchitect(ai)) {
-        if (needBarracks(ai)) buildBarracks(ai);
+        if (repairBases(ai)) { /* 有被摧毁基地：建筑师已派去修复 */ }
+        else if (needBarracks(ai) && armyAdvantage(ai) < C().aiTowerFrontArmyLead) buildBarracks(ai);
         else fortify(ai);
       }
     }
 
-    // 4) 副将命令集持续执行（覆盖到新单位/刚空闲的单位；带去抖）
-    executeRoleOrders(ai, 'offense', time);
+    // 4) 副将命令集持续执行（覆盖到新单位/刚空闲的单位；带去抖）。
+    // v11：防守副将先执行、进攻副将后执行——两份订单统一经过协调器（本函数）
+    // 落地为逐单位微指令，且按「角色互斥」（unitsForOrder 排除另一副将已下单的单位）
+    // 保证每个单位同一时刻只有一位领导，杜绝一单位被两位副将来回拉扯。
     executeRoleOrders(ai, 'defense', time);
+    executeRoleOrders(ai, 'offense', time);
 
     // 5) 按态势执行兜底低层指令（只指挥无微指令的单位）
     executePhase(ai, controlled, time);
@@ -1859,11 +2010,52 @@ RTS.AI = (function () {
     }
   }
 
+  /**
+   * v11.1：派空闲建筑师修复被摧毁的己方基地（确定性节奏，优先级高于兵营/哨塔）。
+   * 有被摧毁基地时，建筑师的唯一职责是修基地——不建塔、不建兵营。
+   * 返回 true 表示至少派出一名建筑师。
+   */
+  function repairBases(ai) {
+    if (!RTS.Units.has('architect') || !RTS.Bases) return false;
+    const controlled = mine(ai);
+    const destroyed = RTS.Bases.destroyedBases(ai.owner);
+    if (destroyed.length === 0) return false;
+    const architects = [];
+    controlled.units.forEach((u) => {
+      if (u.type !== 'architect' || u.hp <= 0) return;
+      if (u.building) return; // 正在施工（含修复）
+      if (u.state === 'idle' || u.state === 'move' || u.state === 'attackMove') architects.push(u);
+    });
+    if (architects.length === 0) return false;
+    // 被摧毁基地按离主基地距离排序（就近优先）
+    destroyed.sort((a, b) => RTS.Unit.distTo(a, controlled.base.x, controlled.base.y) - RTS.Unit.distTo(b, controlled.base.x, controlled.base.y));
+    let placed = 0;
+    for (const u of architects) {
+      const base = destroyed[placed % destroyed.length];
+      // 已在途中/已到位的不重复下令（去抖）
+      if (u.orderTarget && Math.hypot(u.orderTarget.x - base.x, u.orderTarget.y - base.y) < 80) continue;
+      RTS.Unit.clearMicro(u); // v10.1：接管被误派去抢资源/驻守的建筑师
+      const res = RTS.Bases.orderRepair(u, base);
+      if (res.ok) placed++;
+      else if (res.reason === 'wood' || res.reason === 'stone') break; // 资源不足就停
+    }
+    return placed > 0;
+  }
+
   /** v10.1：是否还需要（更多）建筑师——（哨塔或兵营）未满 + 木石可负担 + 现有建筑师不足 */
   function architectNeeded(ai) {
     const controlled = mine(ai);
     const Cfg = C();
     const archCount = countType(controlled, 'architect');
+    // v11.1：有被摧毁的基地时，必须保留至少 1 个建筑师负责修复（否则无法重建）
+    const destroyed = RTS.Bases ? RTS.Bases.destroyedBases(ai.owner) : [];
+    if (destroyed.length > 0) {
+      if (archCount >= 1) return false; // 已有建筑师负责修复
+      // 没有建筑师但有被摧毁基地：需要补产（资源足够且过了前期发育期才产）
+      if (controlled.wood < Cfg.baseRepairCost.wood || controlled.stone < Cfg.baseRepairCost.stone) return false;
+      if (RTS.state.time < Cfg.aiArchitectMinTime) return false;
+      return true;
+    }
     const towers = RTS.Towers ? RTS.Towers.towerCount(ai.owner) : 0;
     const barracks = RTS.Barracks ? RTS.Barracks.barracksCount(ai.owner) : 0;
     if (archCount >= Cfg.aiArchitectTarget) return false;
@@ -1967,12 +2159,22 @@ RTS.AI = (function () {
       });
     }
     if (out.length === 0) {
-      // 兜底：桥头 → 已占节点 → 基地两侧
-      const dirX = theirs(ai).base.x > mine(ai).base.x ? 1 : -1;
-      laneIds().forEach((l) => out.push({ x: mine(ai).base.x + dirX * 260, y: laneY(l) }));
+      // 兜底：v11.2 按局势选桥头——优势→敌方一侧桥头（前线桥头堡），
+      // 劣势/均势→己方一侧桥头（防守）；再加已占节点与各基地两侧翼
+      const me = mine(ai);
+      const opp = theirs(ai);
+      const dirX = opp.base.x > me.base.x ? 1 : -1;
+      const front = armyAdvantage(ai) >= C().aiTowerFrontArmyLead;
+      laneIds().forEach((l) => {
+        out.push(front
+          ? { x: opp.base.x - dirX * 260, y: laneY(l) }   // 前线：敌方半场桥头
+          : { x: me.base.x + dirX * 260, y: laneY(l) });  // 防守：己方一侧桥头
+      });
       nodesOf(ai.owner).slice(0, 2).forEach((n) => out.push({ x: n.x + dirX * 70, y: n.y }));
-      out.push({ x: mine(ai).base.x + dirX * 200, y: mine(ai).base.y - 90 });
-      out.push({ x: mine(ai).base.x + dirX * 200, y: mine(ai).base.y + 90 });
+      basesOf(me).forEach((b) => {
+        out.push({ x: b.x + dirX * 200, y: b.y - 90 });
+        out.push({ x: b.x + dirX * 200, y: b.y + 90 });
+      });
     }
     return out;
   }
@@ -2008,5 +2210,8 @@ RTS.AI = (function () {
     STANCE_LIST,
     // v10：供调试面板等外部使用的工具
     ROLE_LABEL,
+    // v11.3：供测试/调试验证多基地目标选择
+    laneTarget,
+    aliveBasesOf,
   };
 })();

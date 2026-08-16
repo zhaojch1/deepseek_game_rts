@@ -213,6 +213,64 @@ RTS.Render = (function () {
     const owner = base.owner;
     const color = owner === 'player' ? '#4aa8ff' : '#ff5a5a';
 
+    // v11.1：被摧毁的基地渲染为废墟（断壁残垣 + 冒烟），不再画血条/旗帜/集结点
+    if (base.destroyed || base.hp <= 0) {
+      ctx.save();
+      ctx.translate(base.x, base.y);
+      ctx.fillStyle = '#262a30';
+      ctx.strokeStyle = '#0c1220';
+      ctx.lineWidth = 3 / RTS.Camera.get().zoom;
+      ctx.beginPath();
+      ctx.roundRect(-r, -r * 0.8, r * 2, r * 1.6, 8);
+      ctx.fill();
+      ctx.stroke();
+      // 断裂的城墙（暗色缺口）
+      ctx.fillStyle = '#15181d';
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.5, -r * 0.8);
+      ctx.lineTo(-r * 0.2, -r * 0.3);
+      ctx.lineTo(-r * 0.55, r * 0.1);
+      ctx.lineTo(-r * 0.85, r * 0.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(r * 0.4, r * 0.8);
+      ctx.lineTo(r * 0.15, r * 0.2);
+      ctx.lineTo(r * 0.5, -r * 0.35);
+      ctx.lineTo(r * 0.8, -r * 0.15);
+      ctx.closePath();
+      ctx.fill();
+      // 裂缝
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 1.5 / RTS.Camera.get().zoom;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.3, -r * 0.8);
+      ctx.lineTo(-r * 0.1, -r * 0.2);
+      ctx.lineTo(-r * 0.35, r * 0.35);
+      ctx.stroke();
+      // 升腾的烟（动画）
+      const t = RTS.state ? RTS.state.time : 0;
+      for (let i = 0; i < 2; i++) {
+        const ph = (t * 0.8 + i * 0.5 + base.x * 0.001) % 1;
+        const sx = (i === 0 ? -r * 0.25 : r * 0.3) + Math.sin(t * 2 + i) * 4;
+        ctx.fillStyle = `rgba(110,110,110,${(0.35 * (1 - ph)).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(sx, -r * 0.85 - ph * 26, 5 + ph * 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      // 已摧毁标记
+      ctx.strokeStyle = '#ff8a5a';
+      ctx.lineWidth = 4 / RTS.Camera.get().zoom;
+      ctx.beginPath();
+      ctx.moveTo(base.x - 12, base.y - r * 0.8 - 26);
+      ctx.lineTo(base.x + 12, base.y - r * 0.8 - 50);
+      ctx.moveTo(base.x + 12, base.y - r * 0.8 - 26);
+      ctx.lineTo(base.x - 12, base.y - r * 0.8 - 50);
+      ctx.stroke();
+      return;
+    }
+
     ctx.save();
     ctx.translate(base.x, base.y);
 
@@ -299,8 +357,8 @@ RTS.Render = (function () {
     ctx.fill();
     ctx.restore();
 
-    // 己方城堡被选中：高亮描边
-    if (RTS.state.selectedBase === base.owner) {
+    // 己方城堡被选中：高亮描边（v11：按基地对象匹配，多基地各自高亮）
+    if (RTS.state.selectedBase === base) {
       ctx.strokeStyle = '#6ee7a0';
       ctx.lineWidth = 3 / RTS.Camera.get().zoom;
       ctx.beginPath();
@@ -310,7 +368,7 @@ RTS.Render = (function () {
 
     // 单位出生集结点标记（旗帜 + 虚线落点）
     if (base.rallyX != null && base.rallyY != null) {
-      const selected = RTS.state.selectedBase === base.owner;
+      const selected = RTS.state.selectedBase === base;
       const z = RTS.Camera.get().zoom;
       const rx = base.rallyX;
       const ry = base.rallyY;
@@ -875,8 +933,11 @@ RTS.Render = (function () {
     applyCamera();
     drawTerrain();
     drawResourceNodes();
-    drawBase(RTS.state.player.base);
-    drawBase(RTS.state.enemy.base);
+    // v11：多基地——绘制该阵营全部指挥所
+    (RTS.state.player.bases && RTS.state.player.bases.length ? RTS.state.player.bases : [RTS.state.player.base])
+      .forEach((b) => drawBase(b));
+    (RTS.state.enemy.bases && RTS.state.enemy.bases.length ? RTS.state.enemy.bases : [RTS.state.enemy.base])
+      .forEach((b) => drawBase(b));
     drawTowers(); // v9：防御哨塔
     drawBarracks(); // v10.2：兵营
     drawCorpses();
@@ -941,11 +1002,11 @@ RTS.Render = (function () {
       mctx.fillRect(node.x * sx - 2, node.y * sy - 2, 4, 4);
     }
 
-    // 基地
-    mctx.fillStyle = '#4aa8ff';
-    mctx.fillRect(RTS.state.player.base.x * sx - 4, RTS.state.player.base.y * sy - 4, 8, 8);
-    mctx.fillStyle = '#ff5a5a';
-    mctx.fillRect(RTS.state.enemy.base.x * sx - 4, RTS.state.enemy.base.y * sy - 4, 8, 8);
+    // v11：多基地——小地图绘制双方全部指挥所（v11.1：被摧毁的画灰色废墟）
+    (RTS.state.player.bases && RTS.state.player.bases.length ? RTS.state.player.bases : [RTS.state.player.base])
+      .forEach((b) => { mctx.fillStyle = (b.destroyed || b.hp <= 0) ? '#666a70' : '#4aa8ff'; mctx.fillRect(b.x * sx - 4, b.y * sy - 4, 8, 8); });
+    (RTS.state.enemy.bases && RTS.state.enemy.bases.length ? RTS.state.enemy.bases : [RTS.state.enemy.base])
+      .forEach((b) => { mctx.fillStyle = (b.destroyed || b.hp <= 0) ? '#666a70' : '#ff5a5a'; mctx.fillRect(b.x * sx - 4, b.y * sy - 4, 8, 8); });
 
     // v9：防御哨塔
     if (RTS.state.towers) {

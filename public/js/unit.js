@@ -59,6 +59,10 @@ RTS.Unit = (function () {
       //      until, source }。有微指令的单位被 AI 标记为「已占用」，
       //     普通态势执行器不得再对其下令（防止来回拉扯）。
       microOrder: null,
+
+      // v11：最近一次受到伤害的时间（秒，RTS.state.time）。斥候用它判断
+      // 「被攻击时才反击」——窗口内允许交战，窗口外不主动索敌。
+      lastHurtAt: -9999,
     };
   }
 
@@ -73,6 +77,20 @@ RTS.Unit = (function () {
     if (!m) return false;
     if (m.until != null && RTS.state && RTS.state.time > m.until) return false;
     return true;
+  }
+
+  /**
+   * v11：斥候「不主动交战」判定——正在抢占资源点（capture 微指令）的斥候，
+   * 除非刚被攻击（lastHurtAt 在 aiScoutCounterattackWindow 内），否则不索敌、
+   * 不交战，优先奔赴下一个据点（斥候移速全场最快，遇敌可直接甩开）。
+   */
+  function scoutPassive(unit) {
+    if (unit.type !== 'scout' || !unit.microOrder || unit.microOrder.kind !== 'capture') return false;
+    const st = RTS.state;
+    if (!st) return true;
+    const window = (RTS.CONFIG.aiScoutCounterattackWindow != null)
+      ? RTS.CONFIG.aiScoutCounterattackWindow : 3;
+    return (st.time - (unit.lastHurtAt || -9999)) > window;
   }
 
   /** 目标是否仍存活 */
@@ -260,9 +278,11 @@ RTS.Unit = (function () {
     if (unit.hp <= 0) return;
 
     // v9：建筑师施工中——只前往建造点，抵达后原地站定，不参与战斗/索敌
+    // v11.1：base_repair（修复被摧毁基地）也走同一状态机（spot.radius 区分到达判定）
     if (unit.type === 'architect' && unit.building) {
       const spot = unit.building;
-      if (Math.hypot(unit.x - spot.x, unit.y - spot.y) > RTS.CONFIG.towerBuildRadius + 8) {
+      const buildR = (spot.radius != null ? spot.radius : RTS.CONFIG.towerBuildRadius) + 8;
+      if (Math.hypot(unit.x - spot.x, unit.y - spot.y) > buildR) {
         if (!unit.orderTarget) RTS.Unit.orderMove(unit, spot.x, spot.y);
         else moveAlongPath(unit, dt);
       } else {
@@ -329,22 +349,34 @@ RTS.Unit = (function () {
         if (target) {
           engage(unit, target, dt);
         } else {
-          const acq = RTS.Combat.acquire(unit, RTS.CONFIG.attackMoveAcquireRadius);
-          if (acq) {
-            unit.attackTarget = acq;
+          // v11：抢占资源中的斥候不主动交战（除非刚被攻击），直奔目标点
+          if (!scoutPassive(unit)) {
+            const acq = RTS.Combat.acquire(unit, RTS.CONFIG.attackMoveAcquireRadius);
+            if (acq) {
+              unit.attackTarget = acq;
+            } else {
+              const arrived = moveAlongPath(unit, dt);
+              if (arrived) {
+                // 到达攻击移动目的地：落位驻守，转为 idle 并在原地自动反击
+                unit.holdX = unit.x;
+                unit.holdY = unit.y;
+                unit.state = 'idle';
+                unit.isStuck = false;
+                unit.stuckTimer = 0;
+              }
+              // 移动中亦会就近自动攻击（在射程内）
+              const nearby = RTS.Combat.acquire(unit, unit.range);
+              if (nearby) unit.attackTarget = nearby;
+            }
           } else {
             const arrived = moveAlongPath(unit, dt);
             if (arrived) {
-              // 到达攻击移动目的地：落位驻守，转为 idle 并在原地自动反击
               unit.holdX = unit.x;
               unit.holdY = unit.y;
               unit.state = 'idle';
               unit.isStuck = false;
               unit.stuckTimer = 0;
             }
-            // 移动中亦会就近自动攻击（在射程内）
-            const nearby = RTS.Combat.acquire(unit, unit.range);
-            if (nearby) unit.attackTarget = nearby;
           }
         }
         break;
@@ -388,8 +420,9 @@ RTS.Unit = (function () {
         }
 
         // 驻守反击：在驻守点附近自动索敌，追出一定范围后归位
+        // v11：抢占资源中的斥候不主动交战（除非刚被攻击），在据点周围安静驻守
         const holdR = Math.max(RTS.CONFIG.acquireRadius, 220);
-        const acq = RTS.Combat.acquire(unit, holdR);
+        const acq = scoutPassive(unit) ? null : RTS.Combat.acquire(unit, holdR);
         if (acq) {
           unit.attackTarget = acq;
           unit.state = 'attack'; // 追击并攻击（跨障碍时 seekToward 会 A* 绕行）
@@ -466,6 +499,8 @@ RTS.Unit = (function () {
   function damage(unit, amount) {
     unit.hp -= amount;
     unit.flashTimer = 0.12;
+    // v11：记录受击时间（斥候「被攻击时才反击」的依据）
+    unit.lastHurtAt = (RTS.state && RTS.state.time) || 0;
     if (unit.hp <= 0) {
       unit.hp = 0;
       RTS.Combat.kill(unit);

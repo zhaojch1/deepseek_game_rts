@@ -33,16 +33,19 @@ RTS.Towers = (function () {
     if (faction.stone < Cfg.towerBuildCost.stone) return { ok: false, reason: 'stone' };
     const p = RTS.World.nearestWalkablePx(x, y);
     if (!RTS.World.isWalkablePx(p.x, p.y)) return { ok: false, reason: 'blocked' };
-    // 不与已有哨塔 / 双方基地重叠
+    // 不与已有哨塔 / 双方基地重叠（v11：多基地——遍历每座基地）
     for (const t of list()) {
       if (t.hp > 0 && Math.hypot(t.x - p.x, t.y - p.y) < t.radius + Cfg.towerRadius) {
         return { ok: false, reason: 'overlap' };
       }
     }
     for (const owner of ['player', 'enemy']) {
-      const base = RTS.state[owner].base;
-      if (base && Math.hypot(base.x - p.x, base.y - p.y) < base.radius + Cfg.towerRadius) {
-        return { ok: false, reason: 'overlap' };
+      const fac = RTS.state[owner];
+      const bases = (fac.bases && fac.bases.length) ? fac.bases : [fac.base];
+      for (const base of bases) {
+        if (base && Math.hypot(base.x - p.x, base.y - p.y) < base.radius + Cfg.towerRadius) {
+          return { ok: false, reason: 'overlap' };
+        }
       }
     }
     return { ok: true, reason: null, x: p.x, y: p.y };
@@ -59,18 +62,19 @@ RTS.Towers = (function () {
     if (!check.ok) return check;
     faction.wood -= C().towerBuildCost.wood;
     faction.stone -= C().towerBuildCost.stone;
-    unit.building = { kind: 'tower', x: check.x, y: check.y, progress: 0, total: C().towerBuildTime };
+    unit.building = { kind: 'tower', x: check.x, y: check.y, radius: C().towerBuildRadius, progress: 0, total: C().towerBuildTime };
     RTS.Unit.orderMove(unit, check.x, check.y);
     return { ok: true, reason: null, x: check.x, y: check.y };
   }
 
-  /** 每帧推进正在施工的建筑师（kind==='tower'；兵营施工由 RTS.Barracks.updateBuilders 负责） */
+  /** 每帧推进正在施工的建筑师（kind==='tower'；兵营施工由 RTS.Barracks.updateBuilders 负责，基地修复由 RTS.Bases.updateRepairers 负责） */
   function updateArchitects(dt) {
     RTS.Combat.forEachUnit((u) => {
       if (u.type !== 'architect' || !u.building) return;
       if (u.building.kind === 'barracks') return; // v10.2：兵营施工不在此处理
+      if (u.building.kind === 'base_repair') return; // v11.1：基地修复不在此处理
       const b = u.building;
-      if (Math.hypot(u.x - b.x, u.y - b.y) <= C().towerBuildRadius + 8) {
+      if (Math.hypot(u.x - b.x, u.y - b.y) <= (b.radius != null ? b.radius : C().towerBuildRadius) + 8) {
         b.progress += dt;
         if (b.progress >= b.total) {
           u.building = null;

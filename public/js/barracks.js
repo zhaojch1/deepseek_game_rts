@@ -56,9 +56,12 @@ RTS.Barracks = (function () {
       }
     }
     for (const owner of ['player', 'enemy']) {
-      const base = RTS.state[owner].base;
-      if (base && Math.hypot(base.x - p.x, base.y - p.y) < base.radius + Cfg.barracksRadius) {
-        return { ok: false, reason: 'overlap' };
+      const fac = RTS.state[owner];
+      const bases = (fac.bases && fac.bases.length) ? fac.bases : [fac.base];
+      for (const base of bases) {
+        if (base && Math.hypot(base.x - p.x, base.y - p.y) < base.radius + Cfg.barracksRadius) {
+          return { ok: false, reason: 'overlap' };
+        }
       }
     }
     return { ok: true, reason: null, x: p.x, y: p.y };
@@ -75,7 +78,7 @@ RTS.Barracks = (function () {
     if (!check.ok) return check;
     faction.wood -= C().barracksBuildCost.wood;
     faction.stone -= C().barracksBuildCost.stone;
-    unit.building = { kind: 'barracks', x: check.x, y: check.y, progress: 0, total: C().barracksBuildTime };
+    unit.building = { kind: 'barracks', x: check.x, y: check.y, radius: C().barracksBuildRadius, progress: 0, total: C().barracksBuildTime };
     RTS.Unit.orderMove(unit, check.x, check.y);
     return { ok: true, reason: null, x: check.x, y: check.y };
   }
@@ -85,7 +88,7 @@ RTS.Barracks = (function () {
     RTS.Combat.forEachUnit((u) => {
       if (u.type !== 'architect' || !u.building || u.building.kind !== 'barracks') return;
       const b = u.building;
-      if (Math.hypot(u.x - b.x, u.y - b.y) <= C().barracksBuildRadius + 8) {
+      if (Math.hypot(u.x - b.x, u.y - b.y) <= (b.radius != null ? b.radius : C().barracksBuildRadius) + 8) {
         b.progress += dt;
         if (b.progress >= b.total) {
           u.building = null;

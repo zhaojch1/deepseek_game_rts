@@ -37,8 +37,8 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   const nodes = RTS.World.placeResources(map);
   ok(RTS.world.W === 128 && RTS.world.H === 128, 'grand_basin 尺寸 128×128');
 
-  const p = { x: bases.player.x, y: bases.player.y };
-  const e = { x: bases.enemy.x, y: bases.enemy.y };
+  const p = { x: bases.player[0].x, y: bases.player[0].y };
+  const e = { x: bases.enemy[0].x, y: bases.enemy[0].y };
   const path = RTS.Pathfinding.findPath(p.x, p.y, e.x, e.y);
   ok(!!path && path.length > 0, '大图 玩家基地→敌方基地 可寻路（路径点 ' + (path ? path.length : 0) + '）');
   const mid = path ? path[Math.floor(path.length / 2)] : null;
@@ -51,8 +51,9 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   ok(allWalk, '全部 ' + nodes.length + ' 个资源点可通行');
   const counts = {};
   nodes.forEach((n) => { counts[n.type] = (counts[n.type] || 0) + 1; });
-  ok(counts.gold === 8 && counts.wood === 12 && counts.stone === 14,
-    '资源分布 金8/木12/石14 = 实际 ' + JSON.stringify(counts) + '（共 ' + nodes.length + ' 座）');
+  // v11：大地图金矿 8→12（每方 6 座），资源总数 34→38
+  ok(counts.gold === 12 && counts.wood === 12 && counts.stone === 14,
+    '资源分布 金12/木12/石14 = 实际 ' + JSON.stringify(counts) + '（共 ' + nodes.length + ' 座）');
 
   // 三条通道 laneY 均落在桥梁上
   for (const l of map.lanes) {
@@ -76,7 +77,7 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   ok(ha.ranged && ha.speed === 3.8, '骑射手为远程且高速');
   ok(ha.bonusVs.hammer === 1.3, '骑射手克制锤子兵 ×1.3');
   const w = RTS.Units.get('wall');
-  ok(w.hp === 320 && w.bonusVs.cavalry === 1.3, '肉盾高生命且克骑兵 ×1.3');
+  ok(w.hp === 700 && w.bonusVs.cavalry === 1.3, '肉盾高生命（v11.3：700）且克骑兵 ×1.3');
 
   // v9：斥候全场最快 / 建筑师有建造定位
   const sc = RTS.Units.get('scout');
@@ -84,7 +85,7 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   ok(sc.tags.includes('fast') && sc.tags.includes('scout'), '斥候带 fast/scout 标签');
   const ar = RTS.Units.get('architect');
   ok(!!ar && ar.tags.includes('builder'), '建筑师带 builder 标签');
-  ok(RTS.CONFIG.towerBuildCost.wood === 60 && RTS.CONFIG.towerBuildCost.stone === 60, '哨塔造价 木60/石60');
+  ok(RTS.CONFIG.towerBuildCost.wood === 100 && RTS.CONFIG.towerBuildCost.stone === 100, '哨塔造价 木100/石100（v11.1）');
 
   // 克制闭环抽查：肉盾克骑兵 → 骑兵克弓箭 → 长矛克骑兵（互不碾压）
   const spear = RTS.Units.get('spear');
@@ -107,8 +108,8 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   });
   RTS.state = {
     time: 0, phase: 'running', fps: 0, debugMode: false,
-    player: mkFaction('player', bases.player),
-    enemy: mkFaction('enemy', bases.enemy),
+    player: mkFaction('player', bases.player[0]),
+    enemy: mkFaction('enemy', bases.enemy[0]),
     selection: new Set(), selectedBase: null,
     damageNumbers: [],
     resources: { nodes: RTS.World.placeResources(map) },
@@ -134,7 +135,7 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   }
 
   // 效果挂接
-  const u = RTS.Unit.create('player', 'sword', bases.player.x + 100, bases.player.y);
+  const u = RTS.Unit.create('player', 'sword', bases.player[0].x + 100, bases.player[0].y);
   const baseSpeed = RTS.Units.get('sword').speed * RTS.CONFIG.speedScale;
   ok(Math.abs(u.speed - baseSpeed * (1 + 5 * 0.06)) < 0.001, '疾行军 5 级：新单位移速 +30% (' + u.speed.toFixed(1) + ' px/s)');
   ok(RTS.Resources.siegeMul('player') === 1 + 5 * 0.10, '破城技术 5 级：对基地伤害 ×1.5');
@@ -181,8 +182,8 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   });
   RTS.state = {
     time: 0, phase: 'running', fps: 0, debugMode: false,
-    player: mkFaction('player', bases.player),
-    enemy: mkFaction('enemy', bases.enemy),
+    player: mkFaction('player', bases.player[0]),
+    enemy: mkFaction('enemy', bases.enemy[0]),
     selection: new Set(), selectedBase: null,
     damageNumbers: [],
     resources: { nodes: RTS.World.placeResources(map) },
@@ -203,7 +204,8 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   const stoneBefore = pl.stone;
   const res = RTS.Towers.orderBuild(architect, spot.x, spot.y);
   ok(res.ok, '建筑师可下达建造指令（资源充足）');
-  ok(pl.wood === woodBefore - 60 && pl.stone === stoneBefore - 60, '建造指令立即扣除 木60/石60');
+  // v11.1：哨塔造价 60→100
+  ok(pl.wood === woodBefore - 100 && pl.stone === stoneBefore - 100, '建造指令立即扣除 木100/石100');
   ok(!!architect.building, '建筑师进入施工状态 building');
 
   // 把建筑师瞬移到建造点附近，推进施工
@@ -234,14 +236,20 @@ const ok = (cond, msg) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + msg); 
   ok(dummy.hp < dummyHp0, '哨塔射出的塔箭命中敌方单位（' + (dummyHp0 - dummy.hp) + ' 伤害）');
 
   // ---- 4.3 单位可攻击并摧毁哨塔；销毁后恢复可通行
+  // v11.1：哨塔耐久 420→1500，需 2 个锤子兵集火（~42s 模拟时间）
   const attacker = RTS.Unit.create('player', 'hammer', tower.x + tower.radius + 40, tower.y);
+  const attacker2 = RTS.Unit.create('player', 'hammer', tower.x + tower.radius + 70, tower.y);
   pl.units.set(attacker.id, attacker);
+  pl.units.set(attacker2.id, attacker2);
   attacker.attackTarget = { kind: 'tower', ref: tower };
   attacker.state = 'attack';
+  attacker2.attackTarget = { kind: 'tower', ref: tower };
+  attacker2.state = 'attack';
   let destroyed = false;
-  for (let i = 0; i < 60 * 60; i++) {
+  for (let i = 0; i < 60 * 100; i++) {
     RTS.Combat.rebuildHash();
     RTS.Unit.update(attacker, STEP);
+    RTS.Unit.update(attacker2, STEP);
     if (tower.hp <= 0) { destroyed = true; break; }
   }
   ok(destroyed, '锤子兵能摧毁哨塔');

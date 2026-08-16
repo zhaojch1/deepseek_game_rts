@@ -49,20 +49,53 @@ RTS.Input = (function () {
   function hitTestBase(wx, wy) {
     const st = RTS.state;
     for (const owner of ['enemy', 'player']) {
-      const base = st[owner].base;
-      if (Math.hypot(base.x - wx, base.y - wy) <= base.radius + 6) return base;
+      const fac = st[owner];
+      const bases = (fac.bases && fac.bases.length) ? fac.bases : [fac.base];
+      for (const base of bases) {
+        if (Math.hypot(base.x - wx, base.y - wy) <= base.radius + 6) return base;
+      }
     }
     return null;
   }
 
-  /** 点选自己的城堡（用于设置集结点） */
+  /** v11：点选己方任意一座城堡（用于设置该基地的集结点）；被摧毁的基地不可选 */
   function selectOwnBase(wx, wy) {
     const st = RTS.state;
-    const base = st.player.base;
-    if (Math.hypot(base.x - wx, base.y - wy) <= base.radius + 6) {
-      st.selection.clear();
-      st.selectedBase = 'player';
-      return true;
+    const bases = (st.player.bases && st.player.bases.length) ? st.player.bases : [st.player.base];
+    for (const base of bases) {
+      if (base.destroyed || base.hp <= 0) continue;
+      if (Math.hypot(base.x - wx, base.y - wy) <= base.radius + 6) {
+        st.selection.clear();
+        st.selectedBase = base;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** v11.1：右键点击被摧毁的己方基地（选中建筑师时）→ 派选中建筑师修复 */
+  function issueRepairBase(wx, wy) {
+    const st = RTS.state;
+    const architects = selectedUnits().filter((u) => u.type === 'architect');
+    if (architects.length === 0) return false;
+    const destroyed = (st.player.bases || [st.player.base]).filter((b) => b.destroyed || b.hp <= 0);
+    for (const base of destroyed) {
+      if (Math.hypot(base.x - wx, base.y - wy) <= base.radius + 8) {
+        let okCount = 0;
+        architects.forEach((u, i) => {
+          const target = destroyed[i % destroyed.length] || base;
+          RTS.Unit.clearMicro(u); // v10：手动指令覆盖 AI 微指令
+          const res = RTS.Bases.orderRepair(u, target);
+          if (res.ok) okCount++;
+        });
+        if (okCount > 0) {
+          markOrder(base.x, base.y, '#ffd24e');
+          RTS.UI && RTS.UI.toast(`建筑师开始修复基地（🪵${RTS.CONFIG.baseRepairCost.wood} 🪨${RTS.CONFIG.baseRepairCost.stone}）`, 'info');
+        } else {
+          RTS.UI && RTS.UI.toast('无法修复（资源不足/位置不可用）', 'warn');
+        }
+        return true;
+      }
     }
     return false;
   }
@@ -209,6 +242,16 @@ RTS.Input = (function () {
     return false;
   }
 
+  /** v11.1：点击己方被摧毁的基地（未选中建筑师时给出修复提示） */
+  function hitOwnDestroyedBase(wx, wy) {
+    const st = RTS.state;
+    const bases = (st.player.bases && st.player.bases.length) ? st.player.bases : [st.player.base];
+    for (const base of bases) {
+      if ((base.destroyed || base.hp <= 0) && Math.hypot(base.x - wx, base.y - wy) <= base.radius + 6) return true;
+    }
+    return false;
+  }
+
   function onLeftClick(wx, wy, shift) {
     const st = RTS.state;
     if (playerAIControlled()) return; // AI 接管中：屏蔽选择
@@ -228,6 +271,11 @@ RTS.Input = (function () {
     // 优先：点选自己的城堡
     if (!shift && selectOwnBase(wx, wy)) {
       RTS.UI && RTS.UI.toast('已选中城堡：右键地面设置出生集结点', 'info');
+      return;
+    }
+    // v11.1：点击己方被摧毁的基地 → 提示用建筑师修复
+    if (!shift && hitOwnDestroyedBase(wx, wy)) {
+      RTS.UI && RTS.UI.toast('该基地已被摧毁：选中建筑师（👷）后右键点击可修复', 'warn');
       return;
     }
     // 点击任意非城堡目标时取消城堡选中
@@ -270,11 +318,11 @@ RTS.Input = (function () {
     state.buildPending = false;
     state.buildBarracksPending = false;
 
-    // 已选中己方城堡：右键设置单位出生集结点
-    if (st.selectedBase === 'player') {
+    // 已选中己方城堡：右键设置单位出生集结点（v11：多基地——为该基地设置）
+    if (st.selectedBase && st.selectedBase.owner === 'player') {
       const rally = RTS.World.nearestWalkablePx(wx, wy);
-      st.player.base.rallyX = rally.x;
-      st.player.base.rallyY = rally.y;
+      st.selectedBase.rallyX = rally.x;
+      st.selectedBase.rallyY = rally.y;
       markOrder(rally.x, rally.y, '#4aa8ff');
       RTS.UI && RTS.UI.toast('出生集结点已更新', 'info');
       return;
@@ -285,6 +333,8 @@ RTS.Input = (function () {
       issueAttackUnit(enemyUnit);
       return;
     }
+    // v11.1：右键点击被摧毁的己方基地（需选中建筑师）→ 派建筑师修复
+    if (issueRepairBase(wx, wy)) return;
     const base = hitTestBase(wx, wy);
     if (base && base.owner === 'enemy') {
       issueAttackBase(base);
