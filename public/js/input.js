@@ -413,6 +413,41 @@ RTS.Input = (function () {
       RTS.Camera.panWorld(before.x - after.x, before.y - after.y);
     });
 
+    // v15：小地图交互（点击/拖拽切换相机位置）
+    const minimapCanvas = document.getElementById('minimap');
+    if (minimapCanvas) {
+      let minimapDragging = false;
+      
+      function minimapMoveCamera(e) {
+        if (!RTS.state || RTS.state.phase !== 'running') return;
+        const rect = minimapCanvas.getBoundingClientRect();
+        const mx = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const my = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+        
+        const Cfg = RTS.CONFIG;
+        const worldX = (mx / minimapCanvas.width) * Cfg.worldWidth;
+        const worldY = (my / minimapCanvas.height) * Cfg.worldHeight;
+        RTS.Camera.setCenter(worldX, worldY);
+      }
+      
+      minimapCanvas.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        minimapDragging = true;
+        minimapMoveCamera(e);
+      });
+      
+      window.addEventListener('mousemove', (e) => {
+        if (minimapDragging) {
+          minimapMoveCamera(e);
+        }
+      });
+      
+      window.addEventListener('mouseup', () => {
+        minimapDragging = false;
+      });
+    }
+
     window.addEventListener('keydown', (e) => {
       const key = e.key;
       state.keys.add(key.toLowerCase());

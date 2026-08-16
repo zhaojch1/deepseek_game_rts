@@ -273,16 +273,13 @@ const STANCE_LIST = [
 // v9：分队（编队）指令的任务白名单——LLM 可只命令某个兵种执行这些任务
 const SQUAD_TASK_LIST = ['harass', 'attack', 'defend', 'capture', 'rally', 'retreat'];
 
-// v10：四级指挥链角色
-const ROLE_LIST = ['general', 'offense', 'defense', 'quartermaster'];
-// 进攻副将可下达的任务 / 目标
-const OFFENSE_TASKS = ['attack', 'harass', 'raid', 'capture', 'flank', 'kite', 'siege', 'rally'];
-const OFFENSE_TARGETS = ['gold', 'wood', 'stone', 'expand', 'base', 'towers', 'econ', 'rally'];
-// 防守副将可下达的任务 / 目标
-const DEFENSE_TASKS = ['hold', 'defend', 'intercept', 'retreat', 'patrol'];
-const DEFENSE_TARGETS = ['base_own', 'node', 'choke', 'nearest_intruder', 'rally'];
-// 军需官可升级的科技线
-const UPGRADE_TRACKS = ['attack', 'armor', 'defense', 'siegecraft', 'mobility'];
+// v15：三层指挥链角色（主将/军团长）
+const ROLE_LIST = ['general', 'corps_commander'];
+// v15：军团长可发布的抽象动作
+const CORPS_ACTIONS = [
+  'gather', 'advance', 'attack', 'retreat', 'defend', 'scatter',
+  'flank', 'hold', 'phalanx', 'shield_wall', 'protect_flanks', 'kite', 'charge',
+];
 const LANE_LIST = ['top', 'mid', 'bottom'];
 
 function clampGeneralDecision(decision) {
@@ -305,19 +302,63 @@ function clampGeneralDecision(decision) {
     const sLane = LANE_LIST.includes(decision.squad.lane) ? decision.squad.lane : null;
     if (sType && sTask) squad = { type: sType, task: sTask, lane: sLane };
   }
-  // v10：给三名下属的指挥指令（一句话）
-  const offenseDirective = typeof decision.offenseDirective === 'string' ? decision.offenseDirective.slice(0, 80) : '';
-  const defenseDirective = typeof decision.defenseDirective === 'string' ? decision.defenseDirective.slice(0, 80) : '';
-  const economyDirective = typeof decision.economyDirective === 'string' ? decision.economyDirective.slice(0, 80) : '';
+  // v15：给军团长的指令（数组，每项含 corpsId 和 directive）
+  let corpsDirectives = [];
+  if (Array.isArray(decision.corpsDirectives)) {
+    for (const d of decision.corpsDirectives) {
+      if (corpsDirectives.length >= 4) break;
+      if (!d || typeof d !== 'object') continue;
+      const corpsId = Number(d.corpsId);
+      if (!Number.isInteger(corpsId) || corpsId < 0 || corpsId > 3) continue;
+      const directive = typeof d.directive === 'string' ? d.directive.slice(0, 80) : '';
+      if (directive) corpsDirectives.push({ corpsId, directive });
+    }
+  }
   let comment = typeof decision.comment === 'string' ? decision.comment.slice(0, 60) : '';
   if (!armyFocus && !stance && !lane && !targetFocus && !attackNow && !squad &&
-      !offenseDirective && !defenseDirective && !economyDirective && aggression === 50) {
+      corpsDirectives.length === 0 && aggression === 50) {
     return null; // 完全非法
   }
   return {
     armyFocus, aggression, attackNow, stance, lane, targetFocus, squad,
-    offenseDirective, defenseDirective, economyDirective, comment,
+    corpsDirectives, comment,
   };
+}
+
+/**
+ * v15：军团长决策校验
+ * orders[] 每项：{ unitType: 兵种id或'all', action: 抽象动作, lane?: 方向, point?: {x,y} }
+ */
+function clampCorpsCommander(decision) {
+  if (!decision || typeof decision !== 'object') return null;
+  const orders = [];
+  if (Array.isArray(decision.orders)) {
+    for (const o of decision.orders) {
+      if (orders.length >= 8) break;
+      if (!o || typeof o !== 'object') continue;
+      const unitType = VALID_ARMY_FOCUS.includes(o.unitType) || o.unitType === 'all' ? o.unitType : null;
+      if (!unitType) continue;
+      const action = CORPS_ACTIONS.includes(o.action) ? o.action : null;
+      if (!action) continue;
+      const lane = LANE_LIST.includes(o.lane) ? o.lane : null;
+      let point = null;
+      if (o.point && typeof o.point === 'object') {
+        const x = Number(o.point.x);
+        const y = Number(o.point.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) point = { x: Math.round(x), y: Math.round(y) };
+      }
+      orders.push({ unitType, action, lane, point });
+    }
+  }
+  let comment = typeof decision.comment === 'string' ? decision.comment.slice(0, 60) : '';
+  if (orders.length === 0 && !comment) return null;
+  return { orders, comment };
+}
+
+/** 按角色校验模型输出，返回该角色合法的决策对象；非法返回 null */
+function clampDecision(decision, role) {
+  if (role === 'corps_commander') return clampCorpsCommander(decision);
+  return clampGeneralDecision(decision);
 }
 
 /**
@@ -400,23 +441,20 @@ function clampDecision(decision, role) {
 
 /**
  * 构建系统提示。side: 'player' | 'enemy' 决定扮演哪一方的指挥官；
- * role: 'general' | 'offense' | 'defense' | 'quartermaster' 决定角色（v10 四级指挥链）。
+ * role: 'general' | 'corps_commander' 决定角色（v15 三层指挥链）。
  */
 function buildSystemPrompt(side, role) {
   const who = side === 'player' ? '玩家方' : '敌方';
   const base = '你是 RTS 游戏' + who + '军队的';
-  if (role === 'offense') return buildOffensePrompt(base);
-  if (role === 'defense') return buildDefensePrompt(base);
-  if (role === 'quartermaster') return buildQuartermasterPrompt(base);
+  if (role === 'corps_commander') return buildCorpsCommanderPrompt(base);
   return buildGeneralPrompt(base);
 }
 
 function buildGeneralPrompt(base) {
   return (
     base + '主将（最高指挥官）。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
-    '【指挥链】你的命令将由三名下属执行：进攻副将（进攻战术）、防守副将（防守战术）、' +
-    '军需官（生产/科技/筑垒），全部是独立的大模型。你只需要定「战略意图」，' +
-    '具体到每个单位的调动由副将完成。\n\n' +
+    '【v15 三层指挥链】你的命令由军团长执行。系统会自动根据单位数量分配军团（每50人一个军团），' +
+    '每个军团长负责组织其军团内的战术行动。你只需要定「战略意图」和给军团长的抽象指令。\n\n' +
     '【可用兵种】(armyFocus 只能取下列单位 id 之一)：\n' + UNITS_INTRO + '\n\n' +
     '【可选地图】：\n' + MAPS_INTRO + '\n\n' +
     '【科技】(myUpgrades 字段为当前等级，每线最高 5 级)：' +
@@ -433,22 +471,15 @@ function buildGeneralPrompt(base) {
     '斥候不主动交战（被攻击才反击），专心抢资源与侦查。\n\n' +
     '【v11.1 基地摧毁与修复】基地被打到 0 血即「被摧毁」：停火、不能再出兵、渲染为废墟，' +
     '但残骸仍占位。被摧毁的基地必须派建筑师(architect)前往修复（消耗木材与石料）才能恢复，' +
-    'myBasesDestroyed/enemyBasesDestroyed 字段会告诉你双方被摧毁的基地数——' +
-    '我方基地被摧毁时要第一时间在经济指令(economyDirective)里要求军需官派建筑师修复，' +
-    '敌方基地被摧毁一座就等于少一座出兵点，优先去拆剩下的。\n\n' +
-    '【v11.1 防御哨塔】防御哨塔是重装防御建筑：耐久 1500（约兵营级）、射程 400（覆盖大片防线）、' +
-    '一次齐射两箭，拆塔必须出动攻城单位或集火——建塔收益极高，' +
-    '应尽量在桥头、资源点、各基地两侧广泛布置哨塔（态势选 fortify 或让军需官在 towers 里指定）。' +
-    'v11.3：我方基地箭塔也已强化（30 伤害×3 箭齐射、攻速 1s、射程 360），别让脆皮部队裸冲敌方基地；' +
-    '拆塔/攻基地时让军需官多造肉盾(wall)扛伤害 + 锤子兵(hammer)输出，坦克顶前面、输出站后面。\n\n' +
-    '【v10 指挥指令】除了 stance 等既有字段，请为三名下属各给一句明确指令：\n' +
-    'offenseDirective(给进攻副将的一句话，如"主力压中路，骑兵绕上路骚扰敌方伐木场")、\n' +
-    'defenseDirective(给防守副将的一句话，如"守住我方金矿与桥头，拦截来犯斥候")、\n' +
-    'economyDirective(给军需官的一句话，如"多造斥候抢资源，升级攻击科技，在桥头建哨塔")。\n' +
-    '指令要具体可执行，但不要细化到单位（那是副将的活）。\n\n' +
-    '【分队指令】(squad 字段，可选)：可以只命令某个兵种（同一兵种=一个编队）执行独立任务，' +
-    '其余部队仍按 stance 行动。格式：squad={type: 兵种id, task: harass/attack/defend/' +
-    'capture/rally/retreat, lane?: top/mid/bottom}。\n\n' +
+    'myBasesDestroyed/enemyBasesDestroyed 字段会告诉你双方被摧毁的基地数。\n\n' +
+    '【v15 军团指令（重要）】请通过 corpsDirectives 给每个军团长下达抽象战术指令：\n' +
+    'corpsDirectives: [{corpsId: 0, directive: "主力压中路，长矛兵方阵推进"}, ...]\n' +
+    'corpsId 从0开始，directive 是一句简明的战术要求（如"骑兵保护侧翼，弓箭手后退射击"、' +
+    '"长矛手方阵推进中路"、"全军集结防守基地"）。\n' +
+    '军团长会把你的指令翻译成具体的抽象动作（gather/advance/attack/retreat/defend/' +
+    'scatter/flank/phalanx/shield_wall/protect_flanks/kite/charge 等），再由队长执行。\n\n' +
+    '【分队指令】(squad 字段，可选)：可以只命令某个兵种执行独立任务。\n' +
+    '格式：squad={type: 兵种id, task: harass/attack/defend/capture/rally/retreat, lane?: top/mid/bottom}\n\n' +
     '【JSON 字段】(除 comment 外都可省略)：' +
     'armyFocus(兵种倾向，取上面兵种 id 之一)、' +
     'aggression(0-100 进攻倾向)、' +
@@ -462,32 +493,60 @@ function buildGeneralPrompt(base) {
     'squad(分队指令，见上)、' +
     'lane(主攻方向，top/mid/bottom 之一)、' +
     'targetFocus(目标侧重，base/army/econ 之一)、' +
-    'offenseDirective/defenseDirective/economyDirective(给下属的指令)、' +
+    'corpsDirectives(给军团长的指令数组)、' +
     'comment(不超过30字说明)。'
   );
 }
 
-function buildOffensePrompt(base) {
+/**
+ * v15：军团长系统提示
+ * 军团长负责将主将的抽象指令翻译为具体的战术动作，分配给各兵种队长执行
+ */
+function buildCorpsCommanderPrompt(base) {
   return (
-    base + '进攻副将。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
-    '【职责】主将（最高指挥官）的战略意图通过 user 消息中的 stance（态势）、' +
-    'offenseDirective（进攻指令）、lane、targetFocus 传给你。你的任务是把战略意图翻译成' +
-    '「逐单位/逐小队的战术命令」——颗粒度到具体单位：例如主将要求抢占资源，你就让 3 个斥候' +
-    '同时奔赴 3 座不同的金矿；主将要求中路总攻，你就让主力沿中路推进、骑兵绕侧翼骚扰。\n\n' +
+    base + '军团长。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
+    '【职责】你是军团长，负责组织军团内的战术行动。主将的抽象指令通过 user 消息中的 ' +
+    'generalDirective 传给你。你的任务是把抽象指令翻译为具体的「兵种级战术动作」——' +
+    '例如主将说"长矛手方阵推进中路"，你就下达 {unitType:"spear", action:"phalanx", lane:"mid"}。\n\n' +
+    '【军团信息】user 消息包含：\n' +
+    '- corpsUnitCounts: 军团各兵种数量\n' +
+    '- corpsTotalUnits: 军团总人数\n' +
+    '- corpsCenter: 军团中心坐标\n' +
+    '- nearbyEnemies: 附近敌人列表\n' +
+    '- lanes: 通道信息\n' +
+    '- myBase/enemyBase: 双方基地位置\n\n' +
     '【可用兵种】：\n' + UNITS_INTRO + '\n\n' +
-    '【通道】每条通道对应一条渡河路线：top(上路)/mid(中路)/bottom(下路)。\n\n' +
+    '【抽象动作白名单】(action 字段只能取以下值)：\n' +
+    '- gather: 聚集到指定点或军团中心\n' +
+    '- advance: 向敌方推进（沿路线缓慢前进）\n' +
+    '- attack: 全力进攻敌方\n' +
+    '- retreat: 撤退到我方基地\n' +
+    '- defend: 防守指定位置\n' +
+    '- scatter: 分散开来（避免集火）\n' +
+    '- flank: 侧翼移动（绕到敌方侧翼）\n' +
+    '- hold: 待命不动\n' +
+    '- phalanx: 长矛方阵推进（仅长矛兵有效）\n' +
+    '- shield_wall: 盾墙防御（刀盾兵/肉盾）\n' +
+    '- protect_flanks: 保护侧翼（骑兵专用）\n' +
+    '- kite: 远程风筝后退（弓箭/弩手/骑射）\n' +
+    '- charge: 骑兵冲锋（骑兵专用）\n\n' +
     '【输出 JSON 格式】{"orders":[...], "comment":"不超过30字说明"}\n' +
-    'orders 每项：{"task":任务, "unitId":单位ID(可选), "group":兵种id(可选), ' +
-    '"count":数量(1-10,仅group时), "lane":"top/mid/bottom"(可选), "target":目标(可选)}\n' +
-    '任务与目标：\n' +
-    '- attack 进攻：target 可为 base(敌方基地)/towers(敌方哨塔)，或省略用 lane 指定通道\n' +
-    '- harass 骚扰：lane 指定侧翼通道(top/bottom)，小股打完就跑\n' +
-    '- raid 劫掠经济：target=econ（敌方占领的资源点）\n' +
-    '- capture 抢占资源：target=gold/wood/stone（无主资源点）或 expand（敌方基地附近前沿点）\n' +
-    '- flank 绕后：lane 指定绕行通道，偷袭敌方后排\n' +
-    '- kite 远程风筝：只用于远程兵种(archer/horse_archer)\n' +
-    '- siege 攻城：target=base/towers，派锤子兵(hammer)等攻城单位\n' +
-    '- rally 集结：target=rally，回己方集结点\n\n' +
+    'orders 每项：{"unitType":兵种id或"all", "action":动作, "lane":"top/mid/bottom"(可选), "point":{"x":数字,"y":数字}(可选)}\n\n' +
+    '【规则】\n' +
+    '- unitType 可以是具体兵种 id（如"spear"/"archer"/"cavalry"）或"all"（全军团）\n' +
+    '- 通常 2-4 条指令即可，不要过度细分\n' +
+    '- 合理搭配兵种动作：长矛兵phalanx推进、骑兵protect_flanks、弓箭手kite后退\n' +
+    '- 主将指令模糊时，根据战场形势自行判断\n' +
+    '- 敌人多时考虑defend/scatter，优势时attack/advance\n' +
+    '- lane 用于指定进攻/推进的方向路线\n' +
+    '- point 用于指定聚集/防守的具体位置'
+  );
+}
+
+// 保留旧接口兼容（不再使用，但防报错）
+function buildOffensePrompt(base) { return buildCorpsCommanderPrompt(base); }
+function buildDefensePrompt(base) { return buildCorpsCommanderPrompt(base); }
+function buildQuartermasterPrompt(base) { return buildCorpsCommanderPrompt(base); }
     '【规则】\n' +
     '- 单位清单在 user 消息中（id/type/x/y/state），坐标是像素值；只给需要行动的部队下令，' +
     '通常 1-3 条命令即可，不要命令所有单位；\n' +
@@ -526,48 +585,8 @@ function buildDefensePrompt(base) {
   );
 }
 
-function buildQuartermasterPrompt(base) {
-  return (
-    base + '军需官。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
-    '【职责】主将的经济指令通过 user 消息中的 economyDirective 与 stance 传给你。' +
-    '你负责三件事：\n' +
-    '1. production 生产计划：决定接下来造什么兵、造几个（按列表顺序执行，先出前面的）；\n' +
-    '2. upgrade 科技升级：决定研究哪条科技线；\n' +
-    '3. towers 防御哨塔：决定建筑师在哪里建造哨塔（从候选位置里选）。\n\n' +
-    '【可用兵种】：\n' + UNITS_INTRO + '\n\n' +
-    '【科技】(myUpgrades 为当前等级，最高 5 级)：' +
-    'attack军备锻造(耗木材)/armor铁甲研究(耗木材)/defense城防工事(耗石料)/' +
-    'siegecraft破城技术(耗石料)/mobility疾行军(耗木材)。\n\n' +
-    '【输出 JSON 格式】{"production":[{"type":"兵种id","count":数量}], ' +
-    '"upgrade":"科技名或null", "towers":[{"spot":"候选位置id","priority":数字}], ' +
-    '"comment":"不超过30字说明"}\n\n' +
-    '【规则】\n' +
-    '- production 最多 6 项、每项 count 1-8；参考 enemyArmy 反制：敌方骑兵多→多产长矛兵(spear)；' +
-    '敌方远程多→多产骑兵(cavalry)/斥候(scout)切入；敌方肉盾/刀盾多→多产锤子兵(hammer)；' +
-    '需要攻城→锤子兵(hammer)+肉盾(wall)；缺资源点→斥候(scout)抢占；fortify 态势→建筑师(architect)；\n' +
-    '- v11.3：拆塔/攻击基地（敌方哨塔1500耐久、基地6000耐久）时必须出肉盾(wall)顶在前面扛塔伤' +
-    '（墙式肉盾 700 生命专为扛伤设计），配锤子兵(hammer)输出；' +
-    '决不能让脆皮（弓箭/斥候/骑兵）裸拆建筑白送，也不要用肉盾去追人（移速最慢）；\n' +
-    '- 保持前排（长矛/刀盾/肉盾）与后排（弓箭/弩手/骑射）比例合理，别全造一种；\n' +
-    '- upgrade 一次只研究一项，资源不足就 null；攻击/护甲优先，城防在被压时优先，破城/疾行后置；\n' +
-    '- towers 从 user 消息的 towerCandidates 里选 spot id（如 choke_mid/node_3/base1_l），' +
-    '最多 4 个，priority 数字越小越先建；建造消耗木材与石料。\n\n' +
-    '【v11.1 基地修复与布塔（重要）】' +
-    'user 消息的 destroyedBases（含被摧毁基地的 id/x/y）非空时，' +
-    'production 里必须优先加入建筑师(architect)——被摧毁的基地只有建筑师能修，' +
-    '修好前那座基地停火、停出兵，我方每少一座基地就多一分败局。' +
-    '防御哨塔是重装防御塔（耐久 1500、射程 400、一次两箭，拆塔必须集火/攻城），' +
-    'towers 应优先选择 choke_*（桥头）、node_*（已占资源点）、base1_l/base1_r 等（各基地两侧翼）' +
-    '在地图各处广泛布塔，保护金矿与基地；不必等 fortify 态势，资源富余即可持续铺塔。\n\n' +
-    '【v11.2 按局势布塔】候选位置分两类：防守位（choke_*/node_*/base*_l/base*_r：己方半场）' +
-    '与前线位（front_*：敌方一侧桥头）。参考 myArmy/enemyArmy 判断局势：' +
-    '兵力占优（优势）时优先选 front_* 把塔修到敌方半场当进攻桥头堡，压制敌方资源与出兵；' +
-    '劣势或均势时选 choke_*/base*_* 守家，别把塔修到敌方半场送掉。'
-  );
-}
-
 /**
- * 调用大模型取得决策。provider: 'deepseek' | 'doubao' | 'mimo'；role: v10 指挥链角色。
+ * 调用大模型取得决策。provider: 'deepseek' | 'doubao' | 'mimo'；role: v15 指挥链角色。
  * 豆包走火山方舟 ARK 的 OpenAI 兼容接口（附 thinking.type=disabled 关闭思考）。
  * 小米 MiMo 走 xiaomimimo.com 的 OpenAI 兼容接口（用 api-key 头鉴权）。
  */

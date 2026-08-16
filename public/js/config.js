@@ -169,24 +169,11 @@ RTS.CONFIG = {
   corpseDuration: 0.8, // 死亡动画时长（秒）
 
   // ---------------------------------------------------------------- AI
-  // v10：四级指挥链（主将/进攻副将/防守副将/军需官，全部为大模型）
-  // v11：主将决策频率降至约 20s 一次（原 3-6s）——战略意图低频稳定，避免「朝令夕改」
-  //      导致部队中途折返；副将（4-7s）与军需官（5-9s）决策频率保持不变。
-  aiDecisionIntervalMin: 18, // 主将调用间隔下限（秒，v11：约 20s 一次）
-  aiDecisionIntervalMax: 22, // 主将调用间隔上限（秒，v11：约 20s 一次）
-  aiOfficerIntervalMin: 4, // 副将（进攻/防守）调用间隔下限（秒，v10）
-  aiOfficerIntervalMax: 7, // 副将调用间隔上限（秒，v10）
-  aiQuartermasterIntervalMin: 5, // 军需官调用间隔下限（秒，v10）
-  aiQuartermasterIntervalMax: 9, // 军需官调用间隔上限（秒，v10）
-  aiOfficerRosterCap: 36, // 副将请求中携带的可指挥单位清单上限（控 token）
-  aiMaxOrdersPerOfficer: 8, // 每个副将单次最多下达的命令条数
-  aiMaxUnitsPerOrder: 10, // 单条 group 命令最多指挥的单位数
-  aiQmPlanCap: 6, // 军需官生产计划最多条目数
-  aiQmTowerCap: 4, // 军需官单次最多指定哨塔选址数
-  aiMicroOrderLifetime: 25, // 微指令默认有效时长（秒，v10：逐单位指令的驻留时间）
-  aiOfficerOrderLifetime: 8, // 副将命令集的有效期（秒，超期不再重复尝试分配）
-  aiMicroHoldRadius: 60, // 微指令「驻守/抢占」的归位半径（px，v10）
-  aiKiteDistanceMul: 0.7, // 风筝：远程单位后退的触发距离（射程比例，v10）
+  // v15：三层指挥链（主将/军团长/队长）——命令频率分层，避免混乱
+  aiDecisionIntervalMin: 55, // 主将调用间隔下限（秒，v15：约 60s 一次，战略稳定）
+  aiDecisionIntervalMax: 65, // 主将调用间隔上限（秒，v15：约 60s 一次）
+  aiMicroOrderLifetime: 25, // 微指令默认有效时长（秒）
+  aiMicroHoldRadius: 60, // 微指令「驻守/抢占」的归位半径（px）
   // v11：斥候（scout）行为——AI 阵营斥候数量上限 + 占领确认时长 + 反击窗口
   aiMaxScouts: 3, // AI 阵营斥候数量上限（场上+队列；防止「斥候人海冲锋」）
   aiScoutCaptureSettleTime: 4, // 斥候占领完成后等待「完全占领+无敌人」的驻留秒数（v11）
@@ -224,6 +211,15 @@ RTS.CONFIG = {
   aiChokeRange: 420, // 隘口/桥头防守判定半径
   focusFireRadius: 520, // 围城/集火：该范围内单位直接攻击目标，圈外单位先压上再打
   aiStanceHoldTime: 10, // 态势切换冷却（秒）：非紧急态势在冷却内不重复翻转，防止部队来回横跳
+
+  // ---------------------------------------------------------------- v15：三层指挥链（主将/军团长/队长）
+  // 军团规模：每 aiCorpsSizeThreshold 人分配一个军团长
+  aiCorpsSizeThreshold: 50, // 军团人数阈值：超过该数量自动增加一个军团长
+  aiMaxCorps: 4, // 最大军团数量
+  aiCorpsReassignInterval: 15, // 军团重组检查间隔（秒）
+  aiCorpsCommanderIntervalMin: 25, // 军团长调用间隔下限（秒，v15：约 30s 一次）
+  aiCorpsCommanderIntervalMax: 35, // 军团长调用间隔上限（秒，v15：约 30s 一次）
+  aiSquadLeaderInterval: 10, // 队长执行间隔（秒，v15：每 10s 执行一次战术动作）
 
   // ---------------------------------------------------------------- 快捷键
   attackMoveKey: 'A',

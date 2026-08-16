@@ -602,6 +602,99 @@ RTS.Render = (function () {
     }
   }
 
+  // ---------------------------------------------------------------- v15：军团颜色系统
+  // 军团基础色（避开蓝色#4aa8ff和红色#ff5a5a）
+  const CORPS_BASE_COLORS = [
+    { base: '#e8c840', name: '金' },   // 军团0：金黄色系
+    { base: '#50c878', name: '翠' },   // 军团1：翠绿色系
+    { base: '#9370db', name: '紫' },   // 军团2：紫色系
+    { base: '#e8a040', name: '橙' },   // 军团3：橙色系
+  ];
+
+  // 兵种色相偏移（同一军团内不同兵种用不同色调）
+  const TYPE_HUE_SHIFT = {
+    spear: 0,       // 基础色
+    sword: 15,      // 偏暖
+    archer: -15,    // 偏冷
+    crossbow: -20,  // 更冷
+    cavalry: 30,    // 偏暖黄
+    hammer: -10,    // 偏冷
+    horse_archer: 25, // 偏暖
+    wall: 5,        // 略偏暖
+    scout: -25,     // 偏冷蓝
+    architect: 10,  // 略偏暖
+  };
+
+  /**
+   * 获取单位的军团颜色
+   * @returns {string} 颜色值，或null表示无军团信息
+   */
+  function getCorpsColor(unit, isEnemy) {
+    // 只有AI控制的单位显示军团颜色
+    const ai = isEnemy ? RTS.state.ai : RTS.state.playerAI;
+    if (!ai || !ai.corps || ai.corps.length === 0) return null;
+
+    // 查找单位所属军团
+    let corpsId = -1;
+    for (let i = 0; i < ai.corps.length; i++) {
+      if (ai.corps[i].unitIds && ai.corps[i].unitIds.has(unit.id)) {
+        corpsId = i;
+        break;
+      }
+    }
+    if (corpsId < 0) return null;
+
+    // 获取军团基础色
+    const baseColor = CORPS_BASE_COLORS[corpsId % CORPS_BASE_COLORS.length];
+
+    // 根据兵种调整色调
+    const hueShift = TYPE_HUE_SHIFT[unit.type] || 0;
+
+    // 将hex转为hsl，调整后转回
+    return shiftHue(baseColor.base, hueShift, unit.type);
+  }
+
+  /**
+   * 色相偏移工具函数
+   */
+  function shiftHue(hex, shift, unitType) {
+    // 简化处理：直接返回预设的变体颜色
+    const variants = {
+      // 金黄色系（军团0）
+      '#e8c840': {
+        spear: '#d4b830', sword: '#e8d060', archer: '#c8a828',
+        crossbow: '#b89820', cavalry: '#f0d860', hammer: '#d0a820',
+        horse_archer: '#f0d070', wall: '#e0c040', scout: '#c0a020',
+        architect: '#e8c850',
+      },
+      // 翠绿色系（军团1）
+      '#50c878': {
+        spear: '#40b868', sword: '#60d888', archer: '#38b060',
+        crossbow: '#30a858', cavalry: '#70e098', hammer: '#3ca860',
+        horse_archer: '#68d890', wall: '#4cc070', scout: '#30a050',
+        architect: '#58d080',
+      },
+      // 紫色系（军团2）
+      '#9370db': {
+        spear: '#8360cb', sword: '#a380eb', archer: '#7858c3',
+        crossbow: '#6d50bb', cavalry: '#b090eb', hammer: '#7a58c0',
+        horse_archer: '#a888e3', wall: '#8d68d3', scout: '#6848b3',
+        architect: '#9a78df',
+      },
+      // 橙色系（军团3）
+      '#e8a040': {
+        spear: '#d89030', sword: '#f0b060', archer: '#d08828',
+        crossbow: '#c88020', cavalry: '#f8c070', hammer: '#d08020',
+        horse_archer: '#f0b860', wall: '#e09838', scout: '#c07820',
+        architect: '#e8a848',
+      },
+    };
+
+    const baseMap = variants[hex];
+    if (baseMap && baseMap[unitType]) return baseMap[unitType];
+    return hex; // 默认返回基础色
+  }
+
   // ---------------------------------------------------------------- 单位绘制
   // 单位的实际绘制由各自定义文件（js/units/*.js 的 draw 函数）负责，这里只做通用包装。
 
@@ -659,13 +752,15 @@ RTS.Render = (function () {
   /** v13：LOD 简化绘制——远距离缩放时用圆形色块代替完整单位绘制 */
   function drawUnitSimple(u, isEnemy) {
     const color = isEnemy ? '#c94545' : '#3d7bd8';
-    const outline = isEnemy ? '#ff5a5a' : '#4aa8ff';
+    // v15：LOD模式也显示军团颜色
+    const corpsColor = getCorpsColor(u, isEnemy);
+    const outline = corpsColor || (isEnemy ? '#ff5a5a' : '#4aa8ff');
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(u.x, u.y, u.radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = outline;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = corpsColor ? 2.5 : 1.5;
     ctx.stroke();
   }
 
@@ -687,10 +782,12 @@ RTS.Render = (function () {
         return;
       }
 
-      // 阵营描边
+      // v15：军团颜色描边（优先显示军团色，无军团时用阵营色）
+      const corpsColor = getCorpsColor(u, isEnemy);
       const ownerColor = isEnemy ? '#ff5a5a' : '#4aa8ff';
-      ctx.strokeStyle = ownerColor;
-      ctx.lineWidth = 2 / z;
+      const strokeColor = corpsColor || ownerColor;
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = corpsColor ? 3 / z : 2 / z; // 军团色稍粗
       ctx.beginPath();
       ctx.arc(u.x, u.y, u.radius + 4, 0, Math.PI * 2);
       ctx.stroke();
