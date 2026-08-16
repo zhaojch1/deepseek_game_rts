@@ -6,7 +6,9 @@
 
 RTS.Combat = (function () {
   const C = () => RTS.CONFIG;
+  // v13：复用 Map 和数组，避免每帧 new Map() 触发 GC
   let cells = new Map();
+  let cellPool = []; // 退役的数组对象池
 
   function cellKey(cx, cy) {
     return cx + ',' + cy;
@@ -19,8 +21,17 @@ RTS.Combat = (function () {
     st.enemy.units.forEach(fn);
   }
 
+  /** v13：清空 Map 并回收数组到池中（不 new，复用旧数组） */
+  function clearCells() {
+    cells.forEach((arr) => {
+      arr.length = 0;
+      cellPool.push(arr);
+    });
+    cells.clear();
+  }
+
   function rebuildHash() {
-    cells = new Map();
+    clearCells();
     const cell = C().spatialCellSize;
     forEachUnit((u) => {
       const cx = Math.floor(u.x / cell);
@@ -28,7 +39,7 @@ RTS.Combat = (function () {
       const key = cellKey(cx, cy);
       let arr = cells.get(key);
       if (!arr) {
-        arr = [];
+        arr = cellPool.length > 0 ? cellPool.pop() : [];
         cells.set(key, arr);
       }
       arr.push(u);
@@ -218,8 +229,13 @@ RTS.Combat = (function () {
     }
   }
 
+  // v13：飘字数量上限（避免满屏飘字拖慢渲染）
+  const MAX_DAMAGE_NUMBERS = 60;
+
   function spawnDamageNumber(x, y, value, color) {
     if (!RTS.state || !RTS.state.damageNumbers) return;
+    // v13：超上限时跳过新飘字（最老的会在 age 中自然消亡）
+    if (RTS.state.damageNumbers.length >= MAX_DAMAGE_NUMBERS) return;
     RTS.state.damageNumbers.push({
       x: x + (Math.random() - 0.5) * 14,
       y: y - 8,
@@ -229,10 +245,17 @@ RTS.Combat = (function () {
     });
   }
 
+  // v13：尸体数量上限（防止长时间对局内存堆积）
+  const MAX_CORPSES = 120;
+
   /** 单位死亡移除（生成尸体供死亡动画渲染） */
   function kill(unit) {
     const st = RTS.state;
     if (st.corpses) {
+      // v13：超上限时移除最老的尸体腾位
+      if (st.corpses.length >= MAX_CORPSES) {
+        st.corpses.shift();
+      }
       st.corpses.push({
         x: unit.x,
         y: unit.y,
@@ -252,48 +275,58 @@ RTS.Combat = (function () {
     }
   }
 
-  /** 尸体老化 */
+  /** v13：尸体老化（swap-and-pop 替代 splice） */
   function ageCorpses(dt) {
     if (!RTS.state || !RTS.state.corpses) return;
     const arr = RTS.state.corpses;
     const dur = C().corpseDuration || 0.8;
     for (let i = arr.length - 1; i >= 0; i--) {
       arr[i].deathTimer -= dt / dur;
-      if (arr[i].deathTimer <= 0) arr.splice(i, 1);
+      if (arr[i].deathTimer <= 0) {
+        arr[i] = arr[arr.length - 1];
+        arr.pop();
+      }
     }
   }
 
   /**
-   * v12：单位间分离（避免堆叠），基于空间分桶。
-   * 增强版：同阵营单位间斥力更强，不同阵营间保持基础物理分离。
-   * v12 编队系统进一步增强：formations.js 的 applyFormationSeparation 在此之后额外处理。
+   * v13：单位间分离（优化版）——先用平方距离快速跳过远邻，减少 Math.hypot 调用。
+   * v12：增强版：同阵营斥力更强，不同阵营间保持基础物理分离。
    */
   function applySeparation() {
     const sep = C().unitSeparationDist;
-    // v12：同阵营斥力系数加大（防止友军堆叠比推开敌人更重要）
+    const sep2 = sep * sep;
+    const queryR = sep + 28;
     const friendlyPush = 0.65;
     const enemyPush = 0.35;
     forEachUnit((u) => {
-      const neighbors = query(u.x, u.y, sep + 28);
+      const neighbors = query(u.x, u.y, queryR);
       if (neighbors.length <= 1) return;
       let pushX = 0;
       let pushY = 0;
-      for (const n of neighbors) {
+      for (let ni = 0; ni < neighbors.length; ni++) {
+        const n = neighbors[ni];
         if (n === u) continue;
         const dx = u.x - n.x;
         const dy = u.y - n.y;
-        const d = Math.hypot(dx, dy);
+        const d2 = dx * dx + dy * dy;
         const minD = u.radius + n.radius + 6;
+        const minD2 = minD * minD;
+        // v13：先用平方距离判断，只在需要计算推力时才 sqrt
+        if (d2 >= sep2 && d2 >= minD2) continue;
+        if (d2 < 0.000001) continue;
+        const d = Math.sqrt(d2);
         const isFriendly = n.owner === u.owner;
         const pushFactor = isFriendly ? friendlyPush : enemyPush;
-        if (d < sep && d > 0.001) {
+        const invD = 1 / d;
+        if (d < sep) {
           const overlap = sep - d;
-          pushX += (dx / d) * overlap * pushFactor;
-          pushY += (dy / d) * overlap * pushFactor;
-        } else if (d < minD && d > 0.001) {
+          pushX += dx * invD * overlap * pushFactor;
+          pushY += dy * invD * overlap * pushFactor;
+        } else if (d < minD) {
           const overlap = minD - d;
-          pushX += (dx / d) * overlap * pushFactor;
-          pushY += (dy / d) * overlap * pushFactor;
+          pushX += dx * invD * overlap * pushFactor;
+          pushY += dy * invD * overlap * pushFactor;
         }
       }
       if (pushX || pushY) {
@@ -307,14 +340,17 @@ RTS.Combat = (function () {
     });
   }
 
-  /** 飘字老化 */
+  /** v13：飘字老化（swap-and-pop 替代 splice） */
   function ageDamageNumbers(dt) {
     if (RTS.state && RTS.state.damageNumbers) {
       const arr = RTS.state.damageNumbers;
       for (let i = arr.length - 1; i >= 0; i--) {
         arr[i].life -= dt;
         arr[i].y -= 18 * dt;
-        if (arr[i].life <= 0) arr.splice(i, 1);
+        if (arr[i].life <= 0) {
+          arr[i] = arr[arr.length - 1];
+          arr.pop();
+        }
       }
     }
   }

@@ -14,6 +14,14 @@ RTS.Render = (function () {
   let terrainMinimap;
   let terrainMapId = null;
 
+  // v13：地形离屏缓存——静态地形（草地/森林/岩石/道路）只画一次，每帧直接 drawImage
+  let terrainCache = null;       // 离屏 Canvas（全地图尺寸）
+  let terrainCacheMapId = null;  // 缓存对应的地图 id
+  let waterTiles = [];           // 水面瓦片列表（需要每帧重绘波浪动画）
+
+  // v13：LOD 缩放阈值——低于此缩放比时使用简化渲染
+  const LOD_SIMPLE_ZOOM = 0.65;
+
   const C = () => RTS.CONFIG;
 
   // 调色板
@@ -74,6 +82,115 @@ RTS.Render = (function () {
     return (h >>> 0) / 4294967295;
   }
 
+  /** v13：构建地形离屏缓存（只在开局/换图时调用一次） */
+  function buildTerrainCache() {
+    if (!RTS.world) return;
+    const Cfg = C();
+    const ts = Cfg.tileSize;
+    const G = Cfg.terrainTypes;
+    const W = RTS.world.W;
+    const H = RTS.world.H;
+
+    terrainCache = document.createElement('canvas');
+    terrainCache.width = W * ts;
+    terrainCache.height = H * ts;
+    const tc = terrainCache.getContext('2d');
+
+    // 草地底色
+    tc.fillStyle = '#24402a';
+    tc.fillRect(0, 0, terrainCache.width, terrainCache.height);
+
+    waterTiles = [];
+
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const px = tx * ts;
+        const py = ty * ts;
+        const t = RTS.World.terrainAt(tx, ty);
+        if (t === G.water) {
+          // 水面底色缓存（波浪动画在每帧动态绘制）
+          tc.fillStyle = '#2e5f8a';
+          tc.fillRect(px, py, ts, ts);
+          waterTiles.push({ px, py, ts, tx, ty });
+        } else if (t === G.forest) {
+          drawGrassTileCached(tc, px, py, ts, tx, ty);
+          drawTreeCached(tc, px + ts / 2, py + ts / 2, ts, tx, ty);
+        } else if (t === G.rock) {
+          drawRockTileCached(tc, px, py, ts, tx, ty);
+        } else if (t === G.road) {
+          drawRoadTileCached(tc, px, py, ts, tx, ty);
+        } else {
+          drawGrassTileCached(tc, px, py, ts, tx, ty);
+        }
+      }
+    }
+
+    // 边界线
+    tc.strokeStyle = 'rgba(0,0,0,0.45)';
+    tc.lineWidth = 6;
+    tc.strokeRect(2, 2, terrainCache.width - 4, terrainCache.height - 4);
+
+    terrainCacheMapId = RTS.world.mapId;
+  }
+
+  // v13：缓存版绘制函数（使用传入的 context，不依赖主 ctx）
+  function drawGrassTileCached(c, px, py, ts, tx, ty) {
+    const h = hash2(tx, ty);
+    c.fillStyle = h > 0.85 ? '#2a4a30' : h < 0.15 ? '#1f3a26' : '#24402a';
+    c.fillRect(px, py, ts, ts);
+    if (h > 0.6 && h < 0.9) {
+      c.fillStyle = 'rgba(90,140,80,0.5)';
+      const gx = px + h * ts;
+      const gy = py + (hash2(ty, tx) * ts);
+      c.fillRect(gx, gy, 2, 4);
+      c.fillRect(gx + 3, gy + 1, 2, 3);
+    }
+  }
+
+  function drawRoadTileCached(c, px, py, ts) {
+    c.fillStyle = '#8a7a5a';
+    c.fillRect(px, py, ts, ts);
+    c.fillStyle = 'rgba(0,0,0,0.10)';
+    c.fillRect(px, py + ts * 0.5, ts, 2);
+  }
+
+  function drawRockTileCached(c, px, py, ts, tx, ty) {
+    c.fillStyle = '#4a5560';
+    c.fillRect(px, py, ts, ts);
+    const h = hash2(tx, ty);
+    c.fillStyle = '#5f6b78';
+    c.beginPath();
+    c.moveTo(px + 2, py + ts - 2);
+    c.lineTo(px + ts * 0.3, py + 2);
+    c.lineTo(px + ts * 0.55, py + ts * 0.35);
+    c.lineTo(px + ts - 2, py + ts - 4);
+    c.closePath();
+    c.fill();
+    c.fillStyle = 'rgba(255,255,255,0.12)';
+    c.beginPath();
+    c.moveTo(px + ts * 0.3, py + 4);
+    c.lineTo(px + ts * 0.42, py + ts * 0.3);
+    c.lineTo(px + ts * 0.3, py + ts * 0.5);
+    c.closePath();
+    c.fill();
+  }
+
+  function drawTreeCached(c, cx, cy, ts, tx, ty) {
+    const h = hash2(tx, ty);
+    const s = ts * (0.6 + h * 0.3);
+    c.fillStyle = '#5a3a20';
+    c.fillRect(cx - s * 0.12, cy, s * 0.24, s * 0.5);
+    c.fillStyle = '#1d5a2f';
+    c.beginPath();
+    c.arc(cx, cy - s * 0.25, s * 0.42, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = '#2c7a3f';
+    c.beginPath();
+    c.arc(cx - s * 0.15, cy - s * 0.4, s * 0.3, 0, Math.PI * 2);
+    c.arc(cx + s * 0.15, cy - s * 0.35, s * 0.28, 0, Math.PI * 2);
+    c.fill();
+  }
+
   function viewportWorld() {
     const cam = RTS.Camera.get();
     const halfW = cam.viewW / 2 / cam.zoom;
@@ -95,113 +212,37 @@ RTS.Render = (function () {
     ctx.translate(-cam.x, -cam.y);
   }
 
+  /** v13：地形渲染——静态部分从离屏缓存贴图，水面波浪仍每帧重绘 */
   function drawTerrain() {
-    const Cfg = C();
+    // 惰性构建地形缓存（开局 / 换图时一次性构建）
+    if (!terrainCache || terrainCacheMapId !== RTS.world.mapId) {
+      buildTerrainCache();
+    }
+
+    // 1. 贴静态地形缓存（一次 drawImage 覆盖全图，取代逐瓦片循环）
     const vp = viewportWorld();
-    const ts = Cfg.tileSize;
-    const G = Cfg.terrainTypes;
+    const sx = Math.max(0, Math.floor(vp.left));
+    const sy = Math.max(0, Math.floor(vp.top));
+    const sw = Math.min(terrainCache.width - sx, Math.ceil(vp.right - vp.left) + 1);
+    const sh = Math.min(terrainCache.height - sy, Math.ceil(vp.bottom - vp.top) + 1);
+    if (sw > 0 && sh > 0) {
+      ctx.drawImage(terrainCache, sx, sy, sw, sh, sx, sy, sw, sh);
+    }
 
-    // 草地底色
-    ctx.fillStyle = '#24402a';
-    ctx.fillRect(vp.left, vp.top, vp.right - vp.left, vp.bottom - vp.top);
-
+    // 2. 水面波浪动画（仅重绘水面瓦片的波纹，水面底色已在缓存中）
+    const ts = C().tileSize;
+    const time = RTS.state ? RTS.state.time : 0;
     const x0 = Math.max(0, Math.floor(vp.left / ts));
     const x1 = Math.min(RTS.world.W - 1, Math.ceil(vp.right / ts));
     const y0 = Math.max(0, Math.floor(vp.top / ts));
     const y1 = Math.min(RTS.world.H - 1, Math.ceil(vp.bottom / ts));
-
-    for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        const px = tx * ts;
-        const py = ty * ts;
-        const t = RTS.World.terrainAt(tx, ty);
-        if (t === G.water) {
-          drawWaterTile(px, py, ts, tx, ty);
-        } else if (t === G.forest) {
-          drawGrassTile(px, py, ts, tx, ty);
-          drawTree(px + ts / 2, py + ts / 2, ts, tx, ty);
-        } else if (t === G.rock) {
-          drawRockTile(px, py, ts, tx, ty);
-        } else if (t === G.road) {
-          drawRoadTile(px, py, ts, tx, ty);
-        } else {
-          drawGrassTile(px, py, ts, tx, ty);
-        }
-      }
+    for (let i = 0; i < waterTiles.length; i++) {
+      const wt = waterTiles[i];
+      if (wt.tx < x0 || wt.tx > x1 || wt.ty < y0 || wt.ty > y1) continue;
+      const wave = Math.sin(time * 2 + (wt.tx * 0.7 + wt.ty * 0.9));
+      ctx.fillStyle = 'rgba(120,180,220,0.35)';
+      ctx.fillRect(wt.px + (ts * 0.2) + wave * 4, wt.py + ts * 0.45, ts * 0.5, 2);
     }
-
-    // 边界
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth = 6 / RTS.Camera.get().zoom;
-    ctx.strokeRect(2, 2, Cfg.worldWidth - 4, Cfg.worldHeight - 4);
-  }
-
-  function drawGrassTile(px, py, ts, tx, ty) {
-    const h = hash2(tx, ty);
-    ctx.fillStyle = h > 0.85 ? '#2a4a30' : h < 0.15 ? '#1f3a26' : '#24402a';
-    ctx.fillRect(px, py, ts, ts);
-    // 草丛点缀
-    if (h > 0.6 && h < 0.9) {
-      ctx.fillStyle = 'rgba(90,140,80,0.5)';
-      const gx = px + h * ts;
-      const gy = py + (hash2(ty, tx) * ts);
-      ctx.fillRect(gx, gy, 2, 4);
-      ctx.fillRect(gx + 3, gy + 1, 2, 3);
-    }
-  }
-
-  function drawWaterTile(px, py, ts, tx, ty) {
-    ctx.fillStyle = '#2e5f8a';
-    ctx.fillRect(px, py, ts, ts);
-    const wave = Math.sin(RTS.state.time * 2 + (tx * 0.7 + ty * 0.9));
-    ctx.fillStyle = 'rgba(120,180,220,0.35)';
-    ctx.fillRect(px + (ts * 0.2) + wave * 4, py + ts * 0.45, ts * 0.5, 2);
-  }
-
-  function drawRoadTile(px, py, ts, tx, ty) {
-    ctx.fillStyle = '#8a7a5a';
-    ctx.fillRect(px, py, ts, ts);
-    ctx.fillStyle = 'rgba(0,0,0,0.10)';
-    ctx.fillRect(px, py + ts * 0.5, ts, 2);
-  }
-
-  function drawRockTile(px, py, ts, tx, ty) {
-    ctx.fillStyle = '#4a5560';
-    ctx.fillRect(px, py, ts, ts);
-    const h = hash2(tx, ty);
-    ctx.fillStyle = '#5f6b78';
-    ctx.beginPath();
-    ctx.moveTo(px + 2, py + ts - 2);
-    ctx.lineTo(px + ts * 0.3, py + 2);
-    ctx.lineTo(px + ts * 0.55, py + ts * 0.35);
-    ctx.lineTo(px + ts - 2, py + ts - 4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.moveTo(px + ts * 0.3, py + 4);
-    ctx.lineTo(px + ts * 0.42, py + ts * 0.3);
-    ctx.lineTo(px + ts * 0.3, py + ts * 0.5);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function drawTree(cx, cy, ts, tx, ty) {
-    const h = hash2(tx, ty);
-    const s = ts * (0.6 + h * 0.3);
-    // 树干
-    ctx.fillStyle = '#5a3a20';
-    ctx.fillRect(cx - s * 0.12, cy, s * 0.24, s * 0.5);
-    // 树冠（两层，更有体积感）
-    ctx.fillStyle = '#1d5a2f';
-    ctx.beginPath();
-    ctx.arc(cx, cy - s * 0.25, s * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#2c7a3f';
-    ctx.beginPath();
-    ctx.arc(cx - s * 0.15, cy - s * 0.4, s * 0.3, 0, Math.PI * 2);
-    ctx.arc(cx + s * 0.15, cy - s * 0.35, s * 0.28, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   // ---------------------------------------------------------------- 基地 / 城堡
@@ -615,13 +656,36 @@ RTS.Render = (function () {
     }
   }
 
+  /** v13：LOD 简化绘制——远距离缩放时用圆形色块代替完整单位绘制 */
+  function drawUnitSimple(u, isEnemy) {
+    const color = isEnemy ? '#c94545' : '#3d7bd8';
+    const outline = isEnemy ? '#ff5a5a' : '#4aa8ff';
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, u.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
   function drawUnits() {
     const st = RTS.state;
     const vp = viewportWorld();
     const z = RTS.Camera.get().zoom;
+    const lod = z < LOD_SIMPLE_ZOOM; // v13：LOD 切换
 
     const drawOne = (u, isEnemy) => {
       if (u.x < vp.left - 40 || u.x > vp.right + 40 || u.y < vp.top - 40 || u.y > vp.bottom + 40) return;
+
+      if (lod) {
+        // v13：LOD 简化模式——远距离时只画圆点 + 血条，跳过完整绘制
+        drawUnitSimple(u, isEnemy);
+        if ((!isEnemy && st.selection.has(u.id)) || u.hp < u.maxHp) {
+          drawBar(u.x, u.y - u.radius - 8, u.radius * 2, u.hp / u.maxHp, u.hp / u.maxHp > 0.5 ? '#6ee7a0' : '#ffb020');
+        }
+        return;
+      }
 
       // 阵营描边
       const ownerColor = isEnemy ? '#ff5a5a' : '#4aa8ff';
@@ -673,15 +737,26 @@ RTS.Render = (function () {
     const st = RTS.state;
     if (!st.corpses) return;
     const vp = viewportWorld();
+    const z = RTS.Camera.get().zoom;
+    const lod = z < LOD_SIMPLE_ZOOM;
     for (const c of st.corpses) {
       if (c.x < vp.left - 30 || c.x > vp.right + 30 || c.y < vp.top - 30 || c.y > vp.bottom + 30) continue;
       const t = Math.max(0, Math.min(1, c.deathTimer));
+      if (lod) {
+        // v13：LOD——远距离尸体简化为小色点
+        ctx.globalAlpha = t * 0.6;
+        ctx.fillStyle = tunic(c.owner);
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, c.radius * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        continue;
+      }
       const r = c.radius;
       ctx.save();
       ctx.globalAlpha = t;
       ctx.translate(c.x, c.y);
-      ctx.rotate(c.facingX * (1 - t) * 1.2); // 缓缓倒地
-      // 尸体：躯干 + 头盔
+      ctx.rotate(c.facingX * (1 - t) * 1.2);
       ctx.fillStyle = tunic(c.owner);
       ctx.beginPath();
       ctx.ellipse(0, 0, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);

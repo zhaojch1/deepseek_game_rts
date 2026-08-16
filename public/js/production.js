@@ -26,6 +26,14 @@ RTS.Production = (function () {
     const s = RTS.Unit.typeStats(type);
     if (faction.gold < s.cost) return { ok: false, reason: 'gold' };
     if (usedPop(faction) >= C().populationCap) return { ok: false, reason: 'pop' };
+    // v13：全局单位数量硬上限（双方合计超过 globalUnitCap 时停止生产）
+    const cap = C().globalUnitCap;
+    if (cap) {
+      const st = RTS.state;
+      const total = st.player.units.size + st.enemy.units.size
+        + st.player.productionQueue.length + st.enemy.productionQueue.length;
+      if (total >= cap) return { ok: false, reason: 'globalCap' };
+    }
     return { ok: true };
   }
 

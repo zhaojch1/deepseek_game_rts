@@ -7,7 +7,7 @@
 RTS.Pathfinding = (function () {
   const C = () => RTS.CONFIG;
 
-  /** 最小二叉堆（按 f 值） */
+  /** v13：最小二叉堆（按 f 值）——对象池化 */
   class MinHeap {
     constructor() {
       this.arr = [];
@@ -22,7 +22,7 @@ RTS.Pathfinding = (function () {
       while (i > 0) {
         const p = (i - 1) >> 1;
         if (arr[p].f <= arr[i].f) break;
-        [arr[p], arr[i]] = [arr[i], arr[p]];
+        const tmp = arr[p]; arr[p] = arr[i]; arr[i] = tmp;
         i = p;
       }
     }
@@ -41,12 +41,38 @@ RTS.Pathfinding = (function () {
           if (l < n && arr[l].f < arr[smallest].f) smallest = l;
           if (r < n && arr[r].f < arr[smallest].f) smallest = r;
           if (smallest === i) break;
-          [arr[smallest], arr[i]] = [arr[i], arr[smallest]];
+          const tmp = arr[smallest]; arr[smallest] = arr[i]; arr[i] = tmp;
           i = smallest;
         }
       }
       return top;
     }
+    clear() {
+      this.arr.length = 0;
+    }
+  }
+
+  // v13：预分配寻路缓冲区（避免每次 findPath 都 new 大型 TypedArray）
+  let pathBufSize = 0;
+  let gScore = null;
+  let cameFrom = null;
+  let closed = null;
+  let openHeap = new MinHeap();
+  let pathIdxBuf = [];
+
+  function ensurePathBuffers(size) {
+    if (size > pathBufSize) {
+      pathBufSize = size;
+      gScore = new Float64Array(size);
+      cameFrom = new Int32Array(size);
+      closed = new Uint8Array(size);
+    }
+    // 每次寻路前重置（比 new 快得多）
+    gScore.fill(Infinity);
+    cameFrom.fill(-1);
+    closed.fill(0);
+    openHeap.clear();
+    pathIdxBuf.length = 0;
   }
 
   const DIRS = [
@@ -70,7 +96,6 @@ RTS.Pathfinding = (function () {
    */
   function findPath(startX, startY, goalX, goalY) {
     const world = RTS.world;
-    const Cfg = C();
     const W = world.W;
     const H = world.H;
 
@@ -83,22 +108,19 @@ RTS.Pathfinding = (function () {
       return [goalPx];
     }
 
+    // v13：使用预分配缓冲区，避免每次寻路 new 大型 TypedArray
+    ensurePathBuffers(W * H);
+
     const idx = (x, y) => y * W + x;
     const startIdx = idx(sx, sy);
     const goalIdx = idx(gx, gy);
 
-    // g 值与父节点
-    const gScore = new Float64Array(W * H).fill(Infinity);
-    const cameFrom = new Int32Array(W * H).fill(-1);
-    const closed = new Uint8Array(W * H);
-
     gScore[startIdx] = 0;
-    const open = new MinHeap();
-    open.push({ i: startIdx, f: heuristic(sx, sy, gx, gy) });
+    openHeap.push({ i: startIdx, f: heuristic(sx, sy, gx, gy) });
 
     let found = false;
-    while (open.size > 0) {
-      const cur = open.pop();
+    while (openHeap.size > 0) {
+      const cur = openHeap.pop();
       if (cur.i === goalIdx) {
         found = true;
         break;
@@ -109,14 +131,14 @@ RTS.Pathfinding = (function () {
       const cx = cur.i % W;
       const cy = (cur.i / W) | 0;
 
-      for (const d of DIRS) {
+      for (let di = 0; di < DIRS.length; di++) {
+        const d = DIRS[di];
         const nx = cx + d.dx;
         const ny = cy + d.dy;
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         const ni = idx(nx, ny);
         if (closed[ni]) continue;
         if (!world.walkable[ni]) continue;
-        // 斜向移动禁止穿墙角
         if (d.dx !== 0 && d.dy !== 0) {
           if (!world.walkable[idx(cx + d.dx, cy)] || !world.walkable[idx(cx, cy + d.dy)]) continue;
         }
@@ -124,28 +146,27 @@ RTS.Pathfinding = (function () {
         if (tentative < gScore[ni]) {
           gScore[ni] = tentative;
           cameFrom[ni] = cur.i;
-          open.push({ i: ni, f: tentative + heuristic(nx, ny, gx, gy) });
+          openHeap.push({ i: ni, f: tentative + heuristic(nx, ny, gx, gy) });
         }
       }
     }
 
     if (!found) return null;
 
-    // 回溯路径
-    const pathIdx = [];
+    // 回溯路径（复用 buffer 而非新建数组）
     let cur = goalIdx;
     while (cur !== -1) {
-      pathIdx.push(cur);
+      pathIdxBuf.push(cur);
       if (cur === startIdx) break;
       cur = cameFrom[cur];
     }
-    pathIdx.reverse();
+    pathIdxBuf.reverse();
 
-    const waypoints = pathIdx.map((i) => {
-      const tx = i % W;
-      const ty = (i / W) | 0;
-      return RTS.World.tileToCenter(tx, ty);
-    });
+    const waypoints = new Array(pathIdxBuf.length);
+    for (let i = 0; i < pathIdxBuf.length; i++) {
+      const ti = pathIdxBuf[i];
+      waypoints[i] = RTS.World.tileToCenter(ti % W, (ti / W) | 0);
+    }
     return waypoints;
   }
 
