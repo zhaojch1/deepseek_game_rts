@@ -141,9 +141,56 @@ RTS.Combat = (function () {
     return best;
   }
 
+  /**
+   * v14：长矛兵方阵——附近友方长矛兵达到3个以上时，返回固定护甲加成（不叠加）
+   */
+  function phalanxArmorBonus(unit) {
+    if (unit.type !== 'spear') return 0;
+    const spearDef = RTS.Units.get('spear');
+    if (!spearDef || !spearDef.special || !spearDef.special.phalanx) return 0;
+    const phalanx = spearDef.special.phalanx;
+    const nearby = query(unit.x, unit.y, phalanx.radius);
+    let count = 0;
+    for (const u of nearby) {
+      if (u === unit) continue;
+      if (u.owner !== unit.owner || u.hp <= 0 || u.type !== 'spear') continue;
+      count++;
+    }
+    // 达到最低人数要求才触发方阵效果（固定值，不叠加）
+    return count >= phalanx.minCount ? phalanx.armorBonus : 0;
+  }
+
+  /**
+   * v14：检查长矛兵是否处于方阵状态
+   */
+  function isInPhalanx(unit) {
+    if (unit.type !== 'spear') return false;
+    const spearDef = RTS.Units.get('spear');
+    if (!spearDef || !spearDef.special || !spearDef.special.phalanx) return false;
+    const phalanx = spearDef.special.phalanx;
+    const nearby = query(unit.x, unit.y, phalanx.radius);
+    let count = 0;
+    for (const u of nearby) {
+      if (u === unit) continue;
+      if (u.owner !== unit.owner || u.hp <= 0 || u.type !== 'spear') continue;
+      count++;
+    }
+    return count >= phalanx.minCount;
+  }
+
   /** 结算一次单位受到的伤害（克制 + 掩体 + 护甲），返回实际伤害值 */
   function applyUnitDamage(attackerType, attackValue, t, isRanged) {
     if (!t || t.hp <= 0) return 0;
+    // v14：刀盾兵格挡——有几率完全格挡近战攻击
+    if (!isRanged) {
+      const targetDef = RTS.Units.get(t.type);
+      if (targetDef && targetDef.special && targetDef.special.parry) {
+        if (Math.random() < targetDef.special.parry.chance) {
+          spawnDamageNumber(t.x, t.y, '格挡!', '#66ccff');
+          return 0;
+        }
+      }
+    }
     const mul = RTS.Units.counterMul(attackerType, t.type);
     let dmg = Math.floor(attackValue * mul);
     // 远程攻击者在森林掩体内的单位身上有减伤
@@ -153,6 +200,16 @@ RTS.Combat = (function () {
     // 护甲升级：百分比减伤（每级 -pct，最多 5 级）
     const armorLvl = (RTS.state[t.owner].upgrades && RTS.state[t.owner].upgrades.armor) || 0;
     if (armorLvl > 0) dmg = Math.floor(dmg * (1 - armorLvl * C().upgrades.armor.pct));
+    // v14：长矛兵枪阵——附近友方长矛兵增加护甲
+    const phalanxBonus = phalanxArmorBonus(t);
+    if (phalanxBonus > 0) dmg = Math.floor(dmg * (1 - phalanxBonus));
+    // v14：刀盾兵举盾防御——减少远程伤害
+    if (isRanged) {
+      const targetDef = RTS.Units.get(t.type);
+      if (targetDef && targetDef.special && targetDef.special.shieldBlock) {
+        dmg = Math.floor(dmg * (1 - targetDef.special.shieldBlock.rangedDamageReduction));
+      }
+    }
     if (dmg < 1) dmg = 1;
     RTS.Unit.damage(t, dmg);
     spawnDamageNumber(t.x, t.y, dmg, mul > 1 ? '#ffd24e' : mul < 1 ? '#9fb0c8' : '#ffffff');
@@ -210,23 +267,158 @@ RTS.Combat = (function () {
   /** 近战/瞬时攻击结算（由单位直接调用） */
   function deliverAttack(unit, target) {
     if (target.kind === 'unit') {
-      applyUnitDamage(unit.type, RTS.Resources.effectiveAttack(unit), target.ref, false);
+      let attackValue = RTS.Resources.effectiveAttack(unit);
+      const attackerDef = RTS.Units.get(unit.type);
+      const special = attackerDef && attackerDef.special;
+
+      // v14：骑兵冲锋暴击——移速越快，首次攻击伤害越高
+      if (special && special.charge && unit.chargeDamageBonus > 0) {
+        attackValue += unit.chargeDamageBonus;
+        unit.chargeDamageBonus = 0; // 消费冲锋
+        unit.isCharging = false;
+        unit.chargeCooldown = special.charge.cooldown || 8; // 冲锋冷却
+        spawnDamageNumber(target.ref.x, target.ref.y, '冲锋!', '#ff5555');
+      }
+
+      // v14：锤子兵破甲——无视目标部分护甲
+      let armorPierceReduction = 0;
+      if (special && special.armorPierce) {
+        armorPierceReduction = special.armorPierce.armorReduction || 0;
+      }
+
+      // v14：刀盾兵举盾防御——减少远程伤害（近战不触发）
+      // 由 applyUnitDamage 处理
+
+      // v14：锤子兵对建筑额外伤害
+      let structuralMul = 1;
+      if (special && special.structuralDamage) {
+        // 已在 baseMul 中处理对建筑的额外伤害，这里只处理对哨塔的额外伤害
+        if (target.kind === 'tower') {
+          structuralMul = 1 + (special.structuralDamage.towerDamageBonus || 0);
+        }
+      }
+
+      // v14：骑兵践踏——对步兵额外伤害
+      let trampleMul = 1;
+      if (special && special.trample) {
+        const targetDef = RTS.Units.get(target.ref.type);
+        if (targetDef && targetDef.tags && targetDef.tags.includes('infantry')) {
+          trampleMul = 1 + special.trample.infantryDamageBonus;
+        }
+      }
+
+      // v14：长矛兵反冲锋——对冲锋中的骑兵造成双倍伤害
+      let antiChargeMul = 1;
+      if (special && special.antiCharge) {
+        if (target.ref.isCharging) {
+          antiChargeMul = special.antiCharge.damageMultiplier || 2.0;
+          spawnDamageNumber(target.ref.x, target.ref.y, '反冲锋!', '#ff99ff');
+        }
+      }
+
+      // 应用总伤害
+      const finalDmg = applyUnitDamageV14(unit.type, attackValue * trampleMul * antiChargeMul, target.ref, false, armorPierceReduction);
+
+      // v14：锤子兵眩晕
+      if (special && special.stun && finalDmg > 0) {
+        if (Math.random() < special.stun.chance) {
+          target.ref.stunTimer = special.stun.duration;
+          spawnDamageNumber(target.ref.x, target.ref.y, '眩晕!', '#cc99ff');
+        }
+      }
+
+      // v14：刀盾兵盾击——攻击有几率眩晕敌人
+      if (special && special.shieldBash && finalDmg > 0) {
+        if (Math.random() < special.shieldBash.chance) {
+          target.ref.stunTimer = special.shieldBash.duration;
+          spawnDamageNumber(target.ref.x, target.ref.y, '盾击!', '#9999ff');
+        }
+      }
+
+      // v14：骑兵冲锋击退
+      if (special && special.knockback && unit.isCharging) {
+        if (Math.random() < special.knockback.chance) {
+          const dx = target.ref.x - unit.x;
+          const dy = target.ref.y - unit.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 1) {
+            const kbDist = special.knockback.distance;
+            target.ref.x += (dx / dist) * kbDist;
+            target.ref.y += (dy / dist) * kbDist;
+            spawnDamageNumber(target.ref.x, target.ref.y, '击退!', '#ffaa44');
+          }
+        }
+      }
     } else if (target.kind === 'base') {
       // v8：单位定义可带 baseMul（如锤子兵 ×1.5 攻城），叠乘破城科技
       const def = RTS.Units.get(unit.type);
       const baseMul = (def && def.baseMul) || 1;
-      hitBase(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref, RTS.Resources.siegeMul(unit.owner));
+      // v14：锤子兵对建筑额外伤害
+      const special = def && def.special;
+      let structuralMul = 1;
+      if (special && special.structuralDamage) {
+        structuralMul = 1 + (special.structuralDamage.buildingDamageBonus || 0);
+      }
+      hitBase(RTS.Resources.effectiveAttack(unit) * baseMul * structuralMul, target.ref, RTS.Resources.siegeMul(unit.owner));
     } else if (target.kind === 'tower') {
       // v9：攻击哨塔（攻城武器 baseMul 同样生效）
       const def = RTS.Units.get(unit.type);
       const baseMul = (def && def.baseMul) || 1;
-      hitTower(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref);
+      const special = def && def.special;
+      let structuralMul = 1;
+      if (special && special.structuralDamage) {
+        structuralMul = 1 + (special.structuralDamage.towerDamageBonus || 0);
+      }
+      hitTower(RTS.Resources.effectiveAttack(unit) * baseMul * structuralMul, target.ref);
     } else if (target.kind === 'barracks') {
       // v10.2：攻击兵营（攻城武器 baseMul 同样生效）
       const def = RTS.Units.get(unit.type);
       const baseMul = (def && def.baseMul) || 1;
       hitBarracks(RTS.Resources.effectiveAttack(unit) * baseMul, target.ref);
     }
+  }
+
+  /**
+   * v14：带兵种特色的伤害结算（克制 + 掩体 + 护甲 + 破甲 + 举盾防御）
+   */
+  function applyUnitDamageV14(attackerType, attackValue, t, isRanged, armorPierceReduction) {
+    if (!t || t.hp <= 0) return 0;
+    // v14：刀盾兵格挡——有几率完全格挡近战攻击
+    if (!isRanged) {
+      const targetDef = RTS.Units.get(t.type);
+      if (targetDef && targetDef.special && targetDef.special.parry) {
+        if (Math.random() < targetDef.special.parry.chance) {
+          spawnDamageNumber(t.x, t.y, '格挡!', '#66ccff');
+          return 0;
+        }
+      }
+    }
+    const mul = RTS.Units.counterMul(attackerType, t.type);
+    let dmg = Math.floor(attackValue * mul);
+    // 远程攻击者在森林掩体内的单位身上有减伤
+    if (isRanged && RTS.World.isCoverPx(t.x, t.y)) {
+      dmg = Math.floor(dmg * C().coverRangedMul);
+    }
+    // 护甲升级：百分比减伤（每级 -pct，最多 5 级）——受破甲影响
+    const armorLvl = (RTS.state[t.owner].upgrades && RTS.state[t.owner].upgrades.armor) || 0;
+    if (armorLvl > 0) {
+      const effectiveArmorPct = C().upgrades.armor.pct * (1 - (armorPierceReduction || 0));
+      dmg = Math.floor(dmg * (1 - armorLvl * effectiveArmorPct));
+    }
+    // v14：长矛兵枪阵——附近友方长矛兵增加护甲
+    const phalanxBonus = phalanxArmorBonus(t);
+    if (phalanxBonus > 0) dmg = Math.floor(dmg * (1 - phalanxBonus));
+    // v14：刀盾兵举盾防御——减少远程伤害
+    if (isRanged) {
+      const targetDef = RTS.Units.get(t.type);
+      if (targetDef && targetDef.special && targetDef.special.shieldBlock) {
+        dmg = Math.floor(dmg * (1 - targetDef.special.shieldBlock.rangedDamageReduction));
+      }
+    }
+    if (dmg < 1) dmg = 1;
+    RTS.Unit.damage(t, dmg);
+    spawnDamageNumber(t.x, t.y, dmg, mul > 1 ? '#ffd24e' : mul < 1 ? '#9fb0c8' : '#ffffff');
+    return dmg;
   }
 
   // v13：飘字数量上限（避免满屏飘字拖慢渲染）
@@ -369,5 +561,6 @@ RTS.Combat = (function () {
     applySeparation,
     ageDamageNumbers,
     forEachUnit,
+    isInPhalanx,
   };
 })();

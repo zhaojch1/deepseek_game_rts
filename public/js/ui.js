@@ -124,6 +124,9 @@ RTS.UI = (function () {
    * 消息不会自动消失；每侧最多保留 5 条，超过后最老的一条慢慢淡出。
    */
   function aiMessage(side, text) {
+    // v14：只显示主将的动态，隐藏副将的动态
+    if (!text || !text.startsWith('【主将】')) return;
+    
     const box = side === 'player' ? el.aiMsgPlayer : el.aiMsgEnemy;
     if (!box) return;
     const item = document.createElement('div');

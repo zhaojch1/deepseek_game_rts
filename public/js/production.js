@@ -45,14 +45,24 @@ RTS.Production = (function () {
    * （faction.spawnBaseIdx 依次指向 bases[0]、bases[1]、bases[2]…），
    * 即同时点三次出兵卡片时，先从中路基地出、再上路基地、再下路基地。
    * v11.1：被摧毁的基地（destroyed）不参与轮转，直接跳过（修好后才恢复出兵）。
+   * v14：允许AI指定在哪个基地出兵（通过preferredBaseIndex参数）
    */
-  function decideOrigin(faction) {
+  function decideOrigin(faction, preferredBaseIndex) {
     const Cfg = C();
     if (faction.productionQueue.length >= Cfg.baseQueueBarracksThreshold) {
       const barracks = RTS.Barracks ? RTS.Barracks.ofOwner(faction.owner, faction.base.x, faction.base.y) : [];
       if (barracks.length > 0) return { kind: 'barracks', id: barracks[0].id };
     }
     const bases = (faction.bases && faction.bases.length) ? faction.bases : [faction.base];
+    
+    // v14：如果AI指定了基地索引，且该基地可用，则使用该基地
+    if (preferredBaseIndex !== undefined && preferredBaseIndex !== null) {
+      const idx = Math.max(0, Math.min(preferredBaseIndex, bases.length - 1));
+      if (!bases[idx].destroyed && bases[idx].hp > 0) {
+        return { kind: 'base', baseIndex: idx };
+      }
+    }
+    
     // v11.1：在 bases 数组内轮转，跳过被摧毁的基地（index 即真实数组下标）
     let bi = (faction.spawnBaseIdx || 0) % bases.length;
     let found = false;
@@ -65,7 +75,7 @@ RTS.Production = (function () {
     return { kind: 'base', baseIndex: bi };
   }
 
-  function order(faction, type) {
+  function order(faction, type, preferredBaseIndex) {
     const s = RTS.Unit.typeStats(type);
     const check = canOrder(faction, type);
     if (!check.ok) return check;
@@ -77,7 +87,7 @@ RTS.Production = (function () {
       totalTime: s.trainTime,
       elapsed: 0,
       status: 'queued',
-      origin: decideOrigin(faction), // v10.2：'base' | {kind:'barracks', id}
+      origin: decideOrigin(faction, preferredBaseIndex), // v10.2：'base' | {kind:'barracks', id}；v14：支持指定基地
     });
     return { ok: true, reason: null };
   }

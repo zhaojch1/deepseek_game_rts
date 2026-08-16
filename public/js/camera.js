@@ -49,15 +49,15 @@ RTS.Camera = (function () {
     const Cfg = RTS.CONFIG;
     const halfW = viewW / 2 / zoom;
     const halfH = viewH / 2 / zoom;
-    // 允许视野超出地图一定范围，但至少不把中心推出太远
-    const minX = halfW;
-    const maxX = Cfg.worldWidth - halfW;
-    const minY = halfH;
-    const maxY = Cfg.worldHeight - halfH;
-    if (maxX > minX) x = Math.max(minX, Math.min(maxX, x));
-    else x = Cfg.worldWidth / 2;
-    if (maxY > minY) y = Math.max(minY, Math.min(maxY, y));
-    else y = Cfg.worldHeight / 2;
+    // v14：允许视野完全超出地图，这样玩家可以俯瞰整个地图
+    // 但为了防止完全迷失，限制中心点在地图周围一定范围内
+    const margin = Math.max(Cfg.worldWidth, Cfg.worldHeight) * 0.5;
+    const minX = -margin;
+    const maxX = Cfg.worldWidth + margin;
+    const minY = -margin;
+    const maxY = Cfg.worldHeight + margin;
+    x = Math.max(minX, Math.min(maxX, x));
+    y = Math.max(minY, Math.min(maxY, y));
   }
 
   function worldToScreen(wx, wy) {

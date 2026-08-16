@@ -131,12 +131,10 @@ RTS.AI = (function () {
   const LANE_LIST = ['top', 'mid', 'bottom'];
   const TARGET_LIST = ['base', 'army', 'econ'];
 
-  // 指挥链角色中文名
+  // 指挥链角色中文名（v14：改为基地副将架构）
   const ROLE_LABEL = {
     general: '主将',
-    offense: '进攻副将',
-    defense: '防守副将',
-    quartermaster: '军需官',
+    base_officer: '基地副将', // v14：基地副将标签
   };
 
   // 紧急态势：可立即替换当前态势（防守/撤退类），不受态势切换冷却限制
@@ -257,31 +255,16 @@ RTS.AI = (function () {
       lastDeepseekError: null,
       deepseekCount: 0,
 
-      // v10：进攻副将（nextAt=0：主将接管后立即启动，由 everActive 门控）
-      offenseNextAt: 0,
-      offenseBusy: false,
-      offenseActive: false,
-      offenseCount: 0,
-      offenseError: null,
-      offenseOrders: [],       // 最近一次下达的命令集（{task, unitId?, group?, count, lane?, target?}）
-      offenseReceivedAt: -999,
+      // v14：基地副将（每个基地一个副将，控制该基地的生产和单位操作）
+      baseOfficers: [], // 动态数组，每个元素对应一个基地的副将状态
 
-      // v10：防守副将
-      defenseNextAt: 0,
-      defenseBusy: false,
-      defenseActive: false,
-      defenseCount: 0,
-      defenseError: null,
-      defenseOrders: [],
-      defenseReceivedAt: -999,
-
-      // v10：军需官
-      qmNextAt: 0,
-      qmBusy: false,
-      qmActive: false,
-      qmCount: 0,
-      qmError: null,
-      qm: { plan: [], upgrade: null, towers: [], receivedAt: -999 },
+      // v10：军需官（v14：移除军需官，职能分配给基地副将）
+      // qmNextAt: 0,
+      // qmBusy: false,
+      // qmActive: false,
+      // qmCount: 0,
+      // qmError: null,
+      // qm: { plan: [], upgrade: null, towers: [], receivedAt: -999 },
 
       // 指挥官意志（由大模型注入）
       strategy: {
@@ -290,9 +273,7 @@ RTS.AI = (function () {
         lane: null,        // 'top' | 'mid' | 'bottom'
         targetFocus: null, // 'base' | 'army' | 'econ'
         squad: null,       // v9：分队指令 { type, task, lane }——兼容保留
-        offenseDirective: '',   // v10：给进攻副将的指令
-        defenseDirective: '',   // v10：给防守副将的指令
-        economyDirective: '',   // v10：给军需官的指令
+        baseDirectives: [], // v14：给每个基地副将的指令数组
       },
 
       // 集结/进攻节奏
@@ -308,6 +289,42 @@ RTS.AI = (function () {
       feintLane: 'top',
       queueCongestionTime: 0, // v10.2：基地生产队列连续拥堵的累计时长（秒）
     };
+  }
+
+  /**
+   * v14：初始化基地副将状态数组
+   * 每个基地对应一个副将，负责控制该基地的生产和单位操作
+   */
+  function initBaseOfficers(ai) {
+    const controlled = mine(ai);
+    const bases = controlled.bases || [controlled.base];
+    ai.baseOfficers = bases.map((base, index) => ({
+      baseIndex: index,
+      nextAt: 0,
+      busy: false,
+      active: false,
+      count: 0,
+      error: null,
+      orders: [], // 该基地的生产计划和单位操作命令
+      receivedAt: -999,
+      // 基地副将的决策
+      productionPlan: [], // 该基地的生产计划
+      upgrade: null, // 该基地的科技升级
+      unitOrders: [], // 该基地单位的操作命令
+    }));
+  }
+
+  /**
+   * v14：获取或初始化基地副将状态
+   * 如果baseOfficers数组长度与基地数量不匹配，重新初始化
+   */
+  function getBaseOfficer(ai, baseIndex) {
+    if (!ai.baseOfficers || ai.baseOfficers.length === 0) {
+      initBaseOfficers(ai);
+    }
+    // 确保baseIndex在有效范围内
+    const idx = Math.max(0, Math.min(baseIndex, ai.baseOfficers.length - 1));
+    return ai.baseOfficers[idx];
   }
 
   // ------------------------------------------------------------------ 高层态势决策
@@ -475,7 +492,7 @@ RTS.AI = (function () {
 
   function produce(ai, boost) {
     const controlled = mine(ai);
-    const qm = ai.qm;
+    
     // v10.2：人口 ≥85% 时优先补建筑师
     if (controlled.units.size >= C().populationCap * 0.85 &&
         architectNeeded(ai) &&
@@ -483,41 +500,103 @@ RTS.AI = (function () {
       const ac = RTS.Production.canOrder(controlled, 'architect');
       if (ac.ok) RTS.Production.order(controlled, 'architect');
     }
-    let guard = 0;
+    
     const budget = boost ? 4 : 2;
-    while (guard++ < budget) {
-      let type = null;
-      let fromPlan = false;
-      if (qm && qm.plan && qm.plan.length > 0) {
-        // 找计划中第一项「当前可下单」的兵种（v11：斥候达上限时跳过计划中的斥候项）
-        for (let i = 0; i < qm.plan.length; i++) {
-          if (qm.plan[i].type === 'scout' && !scoutCapOk(controlled)) continue;
-          if (RTS.Production.canOrder(controlled, qm.plan[i].type).ok) {
-            type = qm.plan[i].type;
-            fromPlan = true;
-            break;
+    const bases = controlled.bases || [controlled.base];
+    const baseOfficers = ai.baseOfficers || [];
+    
+    // v14：逐基地轮转出兵——每个基地独立决定生产什么
+    let produced = 0;
+    for (let bi = 0; bi < bases.length && produced < budget; bi++) {
+      // 跳过被摧毁的基地
+      if (bases[bi].destroyed || bases[bi].hp <= 0) continue;
+      
+      // 检查该基地的副将是否有生产计划
+      const officer = baseOfficers[bi];
+      if (officer && officer.productionPlan && officer.productionPlan.length > 0) {
+        // 使用副将的生产计划
+        for (let i = 0; i < officer.productionPlan.length && produced < budget; i++) {
+          const plan = officer.productionPlan[i];
+          if (!plan || !plan.type) continue;
+          const check = RTS.Production.canOrder(controlled, plan.type);
+          if (!check.ok) continue;
+          RTS.Production.order(controlled, plan.type, bi);
+          produced++;
+          if (plan.count !== undefined) {
+            plan.count--;
+            if (plan.count <= 0) { officer.productionPlan.splice(i, 1); i--; }
+          } else {
+            officer.productionPlan.splice(i, 1); i--;
           }
         }
-        if (!type) break; // 人口满或全部缺钱：等待
       } else {
-        type = decideProductionType(ai, countArmy(theirs(ai)));
-        // v11：加权随机选中斥候但已达上限：跳过本回合（下回合再选）
+        // 没有副将计划，使用默认加权随机
+        let type = decideProductionType(ai, countArmy(theirs(ai)));
         if (type === 'scout' && !scoutCapOk(controlled)) continue;
-      }
-      if (!type) break;
-      const check = RTS.Production.canOrder(controlled, type);
-      if (!check.ok) break;
-      RTS.Production.order(controlled, type);
-      if (fromPlan) {
-        for (let i = 0; i < qm.plan.length; i++) {
-          if (qm.plan[i].type === type) {
-            qm.plan[i].count--;
-            if (qm.plan[i].count <= 0) qm.plan.splice(i, 1);
-            break;
-          }
-        }
+        if (!type) continue;
+        const check = RTS.Production.canOrder(controlled, type);
+        if (!check.ok) continue;
+        RTS.Production.order(controlled, type, bi);
+        produced++;
       }
     }
+  }
+  
+  /**
+   * v14：根据当前态势和战术需要，决定在哪个基地出兵
+   * 返回基地索引（0, 1, 2...），或null表示使用默认轮转
+   */
+  function decidePreferredBase(ai, type) {
+    const controlled = mine(ai);
+    const bases = controlled.bases || [controlled.base];
+    if (bases.length <= 1) return null; // 单基地地图，无需选择
+    
+    const Cfg = C();
+    const lane = ai.strategy.lane;
+    
+    // 如果指定了进攻路线，优先从对应路线的基地出兵
+    if (lane) {
+      const laneIdx = { 'top': 1, 'mid': 0, 'bottom': 2 };
+      const idx = laneIdx[lane];
+      if (idx !== undefined && idx < bases.length && !bases[idx].destroyed && bases[idx].hp > 0) {
+        return idx;
+      }
+    }
+    
+    // 根据单位类型选择基地
+    const unitDef = RTS.Units.get(type);
+    if (unitDef) {
+      const tags = unitDef.tags || [];
+      // 近战单位优先从前线基地出兵
+      if (tags.includes('melee') && !tags.includes('ranged')) {
+        // 如果有被摧毁的基地，优先从最近的存活基地出兵（用于防守）
+        const intruders = intrudersNear(ai, controlled.base.x, controlled.base.y, Cfg.aiDefenseRadius);
+        if (intruders.length >= Cfg.aiDefenseIntruders) {
+          return 0; // 主基地
+        }
+      }
+      // 远程单位优先从后方基地出兵（更安全）
+      if (tags.includes('ranged')) {
+        // 找到最安全的基地（离敌人最远）
+        let safestIdx = 0;
+        let maxDist = 0;
+        for (let i = 0; i < bases.length; i++) {
+          if (bases[i].destroyed || bases[i].hp <= 0) continue;
+          const nearestEnemy = nearestIntruder(ai);
+          if (nearestEnemy) {
+            const dist = RTS.Unit.distTo(nearestEnemy, bases[i].x, bases[i].y);
+            if (dist > maxDist) {
+              maxDist = dist;
+              safestIdx = i;
+            }
+          }
+        }
+        return safestIdx;
+      }
+    }
+    
+    // 默认返回null，使用轮转机制
+    return null;
   }
 
   /**
@@ -1501,9 +1580,59 @@ RTS.AI = (function () {
       // 副将/军需官：主将成功接管后才启动（避免无 Key 时白打请求）
       if (!ai.deepseekEverActive) return;
     }
+    
+    // v14：基地副将特殊处理
+    if (role === 'base_officer') {
+      // 为每个基地副将单独检查和请求
+      const controlled = mine(ai);
+      const bases = controlled.bases || [controlled.base];
+      for (let i = 0; i < bases.length; i++) {
+        const officer = getBaseOfficer(ai, i);
+        if (!officer.busy && time >= officer.nextAt) {
+          officer.busy = true;
+          requestBaseOfficer(ai, i, time);
+        }
+      }
+      return;
+    }
+    
     if (roleField(ai, role, 'Busy') || time < roleField(ai, role, 'NextAt')) return;
-    ai[role === 'general' ? 'deepseekBusy' : role === 'offense' ? 'offenseBusy' : role === 'defense' ? 'defenseBusy' : 'qmBusy'] = true;
+    ai[role === 'general' ? 'deepseekBusy' : 'qmBusy'] = true;
     requestRole(ai, role, time);
+  }
+
+  /**
+   * v14：请求基地副将决策
+   * 每个基地副将负责控制该基地的生产和单位操作
+   */
+  function requestBaseOfficer(ai, baseIndex, time) {
+    const payload = buildBaseOfficerPayload(ai, baseIndex, time);
+    const doFetch = typeof fetch === 'function' ? fetch : null;
+    if (!doFetch) {
+      // 无 fetch 环境（无头测试/异常）：按失败处理并排下一次请求
+      markBaseOfficerError(ai, baseIndex, 'no_fetch');
+      scheduleBaseOfficerNext(ai, baseIndex, time);
+      return;
+    }
+    doFetch('/api/ai/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.ok && data.decision) {
+          applyBaseOfficerDecision(ai, baseIndex, data.decision, time);
+        } else {
+          markBaseOfficerError(ai, baseIndex, (data && data.reason) || 'no_key');
+        }
+      })
+      .catch(() => {
+        markBaseOfficerError(ai, baseIndex, 'network_error');
+      })
+      .finally(() => {
+        scheduleBaseOfficerNext(ai, baseIndex, time);
+      });
   }
 
   function requestRole(ai, role, time) {
@@ -1557,16 +1686,201 @@ RTS.AI = (function () {
       ai.deepseekActive = false;
       ai.lastDeepseekError = reason;
       ai.lastDecision = null;
-    } else if (role === 'offense') {
-      ai.offenseError = reason;
-      ai.offenseOrders = [];
-    } else if (role === 'defense') {
-      ai.defenseError = reason;
-      ai.defenseOrders = [];
-    } else {
-      ai.qmError = reason;
-      ai.qm = { plan: [], upgrade: null, towers: [], receivedAt: -999 };
+    } else if (role === 'base_officer') {
+      // 基地副将错误处理（所有基地副将共享同一个错误状态）
+      if (ai.baseOfficers) {
+        ai.baseOfficers.forEach(officer => {
+          officer.error = reason;
+          officer.orders = [];
+        });
+      }
     }
+  }
+
+  /**
+   * v14：基地副将错误处理
+   */
+  function markBaseOfficerError(ai, baseIndex, reason) {
+    const officer = getBaseOfficer(ai, baseIndex);
+    officer.error = reason;
+    officer.orders = [];
+  }
+
+  /**
+   * v14：安排基地副将下一次请求时间
+   */
+  function scheduleBaseOfficerNext(ai, baseIndex, time) {
+    const officer = getBaseOfficer(ai, baseIndex);
+    officer.busy = false;
+    const Cfg = C();
+    const min = Cfg.aiOfficerIntervalMin;
+    const max = Cfg.aiOfficerIntervalMax;
+    officer.nextAt = time + min + Math.random() * (max - min);
+    officer.count++;
+  }
+
+  /**
+   * v14：构建基地副将请求载荷
+   */
+  function buildBaseOfficerPayload(ai, baseIndex, time) {
+    const controlled = mine(ai);
+    const opponent = theirs(ai);
+    const bases = controlled.bases || [controlled.base];
+    const base = bases[baseIndex];
+    const myArmy = countArmy(controlled);
+    const opponentArmy = countArmy(opponent);
+    
+    return {
+      side: ai.owner,
+      provider: ai.provider,
+      role: 'base_officer',
+      baseIndex: baseIndex,
+      time: Math.round(time),
+      // 基地信息
+      baseX: Math.round(base.x),
+      baseY: Math.round(base.y),
+      baseHp: Math.round(base.hp),
+      baseMaxHp: Math.round(base.maxHp),
+      baseDestroyed: base.destroyed || false,
+      // 该基地附近的单位
+      nearbyUnits: getUnitsNearBase(ai, base, 300),
+      // 该基地的生产队列
+      productionQueue: controlled.productionQueue.map(q => ({
+        type: q.type,
+        status: q.status,
+        elapsed: Math.round(q.elapsed * 10) / 10,
+        totalTime: q.totalTime,
+        origin: q.origin,
+      })),
+      // 资源情况
+      myGold: Math.round(controlled.gold),
+      myWood: Math.round(controlled.wood),
+      myStone: Math.round(controlled.stone),
+      myPop: controlled.units.size,
+      popCap: C().populationCap,
+      // 敌方信息
+      enemyArmy: opponentArmy,
+      enemyBaseHp: Math.round(Math.min(...basesOf(opponent).map((b) => b.hp))),
+      // 主将指令
+      generalDirective: ai.strategy.baseDirectives[baseIndex] || '',
+      // 当前态势
+      stance: ai.phase,
+      // 可用单位类型
+      availableUnits: RTS.Units.ids().map(id => {
+        const def = RTS.Units.get(id);
+        return { id, name: def.name, cost: def.cost };
+      }),
+    };
+  }
+
+  /**
+   * v14：获取基地附近的单位
+   */
+  function getUnitsNearBase(ai, base, radius) {
+    const units = [];
+    mine(ai).units.forEach(u => {
+      if (u.hp <= 0) return;
+      const dist = RTS.Unit.distTo(u, base.x, base.y);
+      if (dist <= radius) {
+        units.push({
+          id: u.id,
+          type: u.type,
+          x: Math.round(u.x),
+          y: Math.round(u.y),
+          hp: Math.round(u.hp),
+          hasMicroOrder: RTS.Unit.microActive(u),
+        });
+      }
+    });
+    return units;
+  }
+
+  /**
+   * v14：应用基地副将决策
+   */
+  function applyBaseOfficerDecision(ai, baseIndex, decision, time) {
+    const officer = getBaseOfficer(ai, baseIndex);
+    officer.active = true;
+    officer.error = null;
+    officer.receivedAt = time;
+    
+    // 应用生产计划
+    if (decision.production && Array.isArray(decision.production)) {
+      officer.productionPlan = decision.production;
+    }
+    
+    // 应用单位操作命令
+    if (decision.orders && Array.isArray(decision.orders)) {
+      officer.orders = decision.orders;
+      executeBaseOfficerOrders(ai, baseIndex, time);
+    }
+    
+    // 应用科技升级
+    if (decision.upgrade) {
+      officer.upgrade = decision.upgrade;
+    }
+    
+    // 显示决策消息（v14：只显示主将的动态，隐藏副将的动态）
+    // const text = decision.comment || ('基地' + (baseIndex + 1) + '副将下达命令');
+    // if (text && RTS.UI && RTS.UI.aiMessage) {
+    //   RTS.UI.aiMessage(ai.owner, '【基地副将】' + text);
+    // }
+  }
+
+  /**
+   * v14：执行基地副将的单位操作命令
+   */
+  function executeBaseOfficerOrders(ai, baseIndex, time) {
+    const officer = getBaseOfficer(ai, baseIndex);
+    const controlled = mine(ai);
+    const bases = controlled.bases || [controlled.base];
+    const base = bases[baseIndex];
+    
+    officer.orders.forEach(order => {
+      // 获取该基地附近的可用单位
+      const units = getUnitsNearBase(ai, base, 500);
+      const availableUnits = units.filter(u => !u.hasMicroOrder);
+      
+      if (availableUnits.length === 0) return;
+      
+      // 根据命令类型执行
+      switch (order.task) {
+        case 'defend':
+          // 防守基地
+          availableUnits.slice(0, order.count || 3).forEach(u => {
+            const unit = controlled.units.get(u.id);
+            if (unit) {
+              RTS.Unit.orderMove(unit, base.x + (Math.random() - 0.5) * 100, base.y + (Math.random() - 0.5) * 100);
+            }
+          });
+          break;
+        case 'attack':
+          // 攻击指定目标
+          if (order.target) {
+            availableUnits.slice(0, order.count || 3).forEach(u => {
+              const unit = controlled.units.get(u.id);
+              if (unit) {
+                RTS.Unit.orderAttackMove(unit, order.target.x, order.target.y);
+              }
+            });
+          }
+          break;
+        case 'capture':
+          // 占领资源点
+          if (order.targetId) {
+            const node = RTS.state.resources.nodes.find(n => n.id === order.targetId);
+            if (node) {
+              availableUnits.slice(0, order.count || 2).forEach(u => {
+                const unit = controlled.units.get(u.id);
+                if (unit) {
+                  RTS.Unit.orderMove(unit, node.x, node.y);
+                }
+              });
+            }
+          }
+          break;
+      }
+    });
   }
 
   /** 应用某个角色的决策 */
@@ -1701,11 +2015,9 @@ RTS.AI = (function () {
     const time = st.time;
     const controlled = mine(ai);
 
-    // 1) 四级指挥链请求（主将 → 副将/军需官）
+    // 1) v14：指挥链请求（主将 → 基地副将）
     maybeRequestRole(ai, 'general', time);
-    maybeRequestRole(ai, 'offense', time);
-    maybeRequestRole(ai, 'defense', time);
-    maybeRequestRole(ai, 'quartermaster', time);
+    maybeRequestRole(ai, 'base_officer', time);
 
     // 大模型尚未成功接管前，用极简降级自动驾驶保底（接管后规则永不再参与）
     if (!ai.deepseekEverActive) {
@@ -1716,7 +2028,7 @@ RTS.AI = (function () {
       }
     }
 
-    // 2) 生产（军需官计划驱动；无计划时按态势加权）
+    // 2) 生产（基地副将计划驱动；无计划时按态势加权）
     ai.productionTimer -= dt;
     if (ai.productionTimer <= 0) {
       ai.productionTimer = ai.productionInterval;
@@ -1724,7 +2036,7 @@ RTS.AI = (function () {
       produce(ai, boost);
     }
 
-    // 2.1) 科技升级（军需官指定优先）
+    // 2.1) 科技升级（基地副将指定优先）
     ai.upgradeTimer -= dt;
     if (ai.upgradeTimer <= 0) {
       ai.upgradeTimer = 4;
@@ -1763,14 +2075,7 @@ RTS.AI = (function () {
       }
     }
 
-    // 4) 副将命令集持续执行（覆盖到新单位/刚空闲的单位；带去抖）。
-    // v11：防守副将先执行、进攻副将后执行——两份订单统一经过协调器（本函数）
-    // 落地为逐单位微指令，且按「角色互斥」（unitsForOrder 排除另一副将已下单的单位）
-    // 保证每个单位同一时刻只有一位领导，杜绝一单位被两位副将来回拉扯。
-    executeRoleOrders(ai, 'defense', time);
-    executeRoleOrders(ai, 'offense', time);
-
-    // 5) 按态势执行兜底低层指令（只指挥无微指令的单位）
+    // 4) 按态势执行兜底低层指令（只指挥无微指令的单位）
     executePhase(ai, controlled, time);
 
     // v9：分队（编队）指令——与大态势并行（兼容保留）
@@ -1789,6 +2094,49 @@ RTS.AI = (function () {
         ai.phase === PHASE.sneak) {
       ai.waveElapsed += dt;
     }
+  }
+
+  /**
+   * v14：执行基地副将的生产计划
+   * 每个基地副将可以指定该基地生产什么单位
+   */
+  function executeBaseOfficerProduction(ai, time) {
+    if (!ai.baseOfficers) return;
+    const controlled = mine(ai);
+    
+    ai.baseOfficers.forEach((officer, baseIndex) => {
+      if (!officer.productionPlan || officer.productionPlan.length === 0) return;
+      
+      // 检查该基地是否可用
+      const bases = controlled.bases || [controlled.base];
+      const base = bases[baseIndex];
+      if (!base || base.destroyed || base.hp <= 0) return;
+      
+      // 执行生产计划
+      for (let i = 0; i < officer.productionPlan.length; i++) {
+        const plan = officer.productionPlan[i];
+        if (!plan || !plan.type) continue;
+        
+        // 检查是否可以生产
+        const check = RTS.Production.canOrder(controlled, plan.type);
+        if (!check.ok) continue;
+        
+        // 从该基地生产
+        RTS.Production.order(controlled, plan.type, baseIndex);
+        
+        // 减少计划数量
+        if (plan.count !== undefined) {
+          plan.count--;
+          if (plan.count <= 0) {
+            officer.productionPlan.splice(i, 1);
+            i--;
+          }
+        } else {
+          officer.productionPlan.splice(i, 1);
+          i--;
+        }
+      }
+    });
   }
 
   /** 每帧驱动全部 AI 实例（敌方 + 可选玩家接管） */

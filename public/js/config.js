@@ -232,8 +232,8 @@ RTS.CONFIG = {
   spaceCenterKey: 'Space',
 
   // ---------------------------------------------------------------- 相机
-  cameraMinZoom: 0.5,
-  cameraMaxZoom: 2.2,
+  cameraMinZoom: 0.3, // v14：允许更小缩放比以俯瞰整个地图
+  cameraMaxZoom: 3.0, // v14：允许更大缩放比以查看细节
   cameraPanSpeed: 900, // 方向键平移速度 px/s（1x 缩放基准）
   cameraEdgeScroll: 26, // 鼠标贴边滚动像素阈值
 

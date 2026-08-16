@@ -68,6 +68,13 @@ RTS.Unit = (function () {
       //     steerToward 用它临时降低移速，让编队中的单位错开到达（防止同时堆叠）。
       arriveDelay: 0,
       _formationSpeedMul: 1, // v12：编队速度同步乘数（formations.js 设置）
+
+      // v14：兵种特色状态字段
+      chargeCooldown: 0,     // 骑兵：冲锋暴击冷却（秒）
+      chargeDamageBonus: 0,  // 骑兵：本次冲锋伤害加成
+      isCharging: false,     // 骑兵：是否处于冲锋状态
+      stunTimer: 0,          // 被眩晕剩余时间（秒）
+      inPhalanx: false,      // 长矛兵：是否处于方阵状态
     };
   }
 
@@ -126,7 +133,9 @@ RTS.Unit = (function () {
     const dy = ty - unit.y;
     const dist = Math.hypot(dx, dy);
     // v12：编队速度同步——_formationSpeedMul 由 formations.js 设置，让前队减速等后队
-    const speedMul = unit._formationSpeedMul || 1;
+    // v14：长矛兵方阵——结阵时移速降低
+    const phalanxPenalty = unit.inPhalanx ? (RTS.Units.get('spear').special.phalanx.speedPenalty || 0.6) : 1;
+    const speedMul = (unit._formationSpeedMul || 1) * phalanxPenalty;
     const step = unit.speed * speedMul * dt;
     if (dist <= step || dist < 0.001) {
       unit.x = tx;
@@ -386,6 +395,22 @@ RTS.Unit = (function () {
   function update(unit, dt) {
     if (unit.hp <= 0) return;
 
+    // v14：眩晕——被眩晕时跳过所有行动（不移动、不攻击）
+    if (unit.stunTimer > 0) {
+      unit.stunTimer = Math.max(0, unit.stunTimer - dt);
+      if (unit.attackAnim > 0) unit.attackAnim = Math.max(0, unit.attackAnim - dt);
+      if (unit.flashTimer > 0) unit.flashTimer -= dt;
+      return; // 被眩晕，不执行任何行动
+    }
+
+    // v14：骑兵冲锋冷却衰减
+    if (unit.chargeCooldown > 0) unit.chargeCooldown = Math.max(0, unit.chargeCooldown - dt);
+
+    // v14：长矛兵方阵状态检测（每帧检查附近友方长矛兵数量）
+    if (unit.type === 'spear') {
+      unit.inPhalanx = RTS.Combat.isInPhalanx(unit);
+    }
+
     // v9：建筑师施工中——只前往建造点，抵达后原地站定，不参与战斗/索敌
     // v11.1：base_repair（修复被摧毁基地）也走同一状态机（spot.radius 区分到达判定）
     if (unit.type === 'architect' && unit.building) {
@@ -412,6 +437,24 @@ RTS.Unit = (function () {
     }
 
     if (unit.attackCooldown > 0) unit.attackCooldown = Math.max(0, unit.attackCooldown - dt);
+
+    // v14：骑兵冲锋状态管理——移动时积累冲锋，停止时重置
+    if (!unit.ranged) {
+      const unitDef = RTS.Units.get(unit.type);
+      if (unitDef && unitDef.special && unitDef.special.charge) {
+        const isMoving = unit.state === 'move' || unit.state === 'attackMove' || unit.state === 'attack';
+        if (isMoving && unit.chargeCooldown <= 0) {
+          // 计算实际移动速度（与最大速度的比例）
+          const speedRatio = Math.min(1, unit.speed / (RTS.CONFIG.speedScale * 4.2));
+          unit.chargeDamageBonus = Math.min(
+            unitDef.special.charge.maxDamageBonus,
+            speedRatio * unitDef.special.charge.damageBonusPerSpeed * 3
+          );
+          unit.isCharging = speedRatio > 0.5; // 速度超过一半即算冲锋
+        }
+      }
+    }
+
     if (unit.attackWindup > 0) {
       unit.attackWindup -= dt;
       if (unit.attackWindup <= 0) {
@@ -437,8 +480,15 @@ RTS.Unit = (function () {
     if (unit.flashTimer > 0) unit.flashTimer -= dt;
 
     // 行走动画相位推进
+    // v14：方阵中的长矛兵步调整齐——使用基于时间的统一相位而非各自独立相位
     if (unit.state === 'move' || unit.state === 'attackMove' || unit.state === 'attack') {
-      unit.animPhase += dt * unit.speed * 0.22;
+      if (unit.inPhalanx) {
+        // 方阵步调整齐：使用全局时间作为相位基准，所有方阵单位同步
+        const phalanxSpeed = (RTS.Units.get('spear').special.phalanx.speedPenalty || 0.6);
+        unit.animPhase = (RTS.state ? RTS.state.time : 0) * unit.speed * phalanxSpeed * 0.18;
+      } else {
+        unit.animPhase += dt * unit.speed * 0.22;
+      }
     }
 
     const target = unit.attackTarget && targetAlive(unit.attackTarget) ? unit.attackTarget : null;

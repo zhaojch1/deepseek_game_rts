@@ -2,6 +2,7 @@
 
 /**
  * 单位定义：骑兵（cavalry）
+ * v14：增加特色——冲锋暴击、冲锋击退、践踏
  */
 
 RTS.Units.register({
@@ -24,13 +25,36 @@ RTS.Units.register({
   tags: ['melee', 'cavalry', 'fast', 'flanker', 'shock'],
   bonusVs: { spear: 0.7, sword: 1.1, archer: 1.5 },
 
+  // v14：骑兵特色
+  special: {
+    // 冲锋暴击：移动速度越快，首次攻击伤害越高
+    charge: {
+      maxSpeedMultiplier: 4.2, // 最大速度
+      damageBonusPerSpeed: 15, // 每点速度增加的伤害
+      maxDamageBonus: 60, // 最大伤害加成
+      cooldown: 8, // 冲锋冷却时间（秒）
+      description: '移动越快，首次攻击伤害越高（最高+60）'
+    },
+    // 冲锋击退：冲锋时可以击退敌人
+    knockback: {
+      distance: 50, // 击退距离（像素）
+      chance: 0.4, // 40%几率击退
+      description: '冲锋时有40%几率击退敌人'
+    },
+    // 践踏：对步兵有额外伤害
+    trample: {
+      infantryDamageBonus: 0.2, // 对步兵额外伤害
+      description: '对步兵造成额外20%伤害'
+    }
+  },
+
   ai: {
     role: 'flanker',
     weight: 1,
-    desc: '高速高攻突击，克弓箭与刀盾',
+    desc: '高速高攻突击，克弓箭与刀盾，可冲锋暴击',
   },
 
-  doc: '骑兵（cavalry）：高速高攻突击单位。生命130、攻击20、近战射程1.0、攻速1.5s、移速4.2格/s（全场最快）、成本120、训练2s。克制弓箭手（×1.5）与刀盾兵（×1.1），但被长矛兵的反骑兵加成克制（对长矛×0.7）。适合快速支援、切后排与劫掠。',
+  doc: '骑兵（cavalry）：高速高攻突击单位。生命130、攻击20、近战射程1.0、攻速1.5s、移速4.2格/s（全场最快）、成本120、训练2s。特色能力：1）冲锋暴击——移动速度越快，首次攻击伤害越高（最高+60）；2）冲锋击退——冲锋时有40%几率击退敌人；3）践踏——对步兵造成额外20%伤害。克制弓箭手（×1.5）与刀盾兵（×1.1），但被长矛兵的反骑兵加成克制（对长矛×0.7）。适合快速支援、切后排与劫掠。',
 
   draw(ctx, v) {
     const kit = RTS.Units.drawKit;
