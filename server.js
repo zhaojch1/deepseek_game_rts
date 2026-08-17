@@ -547,43 +547,6 @@ function buildCorpsCommanderPrompt(base) {
 function buildOffensePrompt(base) { return buildCorpsCommanderPrompt(base); }
 function buildDefensePrompt(base) { return buildCorpsCommanderPrompt(base); }
 function buildQuartermasterPrompt(base) { return buildCorpsCommanderPrompt(base); }
-    '【规则】\n' +
-    '- 单位清单在 user 消息中（id/type/x/y/state），坐标是像素值；只给需要行动的部队下令，' +
-    '通常 1-3 条命令即可，不要命令所有单位；\n' +
-    '- 同一单位只给一条命令；count 不要超过清单中该兵种可用数量；\n' +
-    '- 斥候(scout)/骑兵(cavalry)适合 capture/raid/harass；锤子兵(hammer)适合 siege；' +
-    '远程(archer/horse_archer)适合 kite/attack；刀盾(sword)/长矛(spear)/肉盾(wall)适合 attack 扛线；\n' +
-    '- 不要命令建筑师(architect)（军需官负责筑垒）。'
-  );
-}
-
-function buildDefensePrompt(base) {
-  return (
-    base + '防守副将。你只能回复一个合法 JSON，不要输出任何其他文字。\n\n' +
-    '【职责】主将的战略意图通过 user 消息中的 stance 与 defenseDirective 传给你。' +
-    '你负责把意图翻译成逐单位/逐小队的防守命令：例如主将要求守住金矿，' +
-    '你就派最近的刀盾兵去金矿驻守、弓箭手站后排、再派一组人去桥头拦截。\n\n' +
-    '【输入】user 消息包含：我方基地坐标(baseX/baseY，主基地)、我方基地数量(myBaseCount)、' +
-    '入侵者列表(intruders：' +
-    '每个含 type/x/y/hp，是接近我方任一基地/资源点的敌方单位)、我方占领的资源点' +
-    '(ownedNodes：含 id/type/x/y)、各通道桥头(chokepoints：含 lane/x/y)、' +
-    '可指挥单位清单(roster：id/type/x/y/state)。\n\n' +
-    '【输出 JSON 格式】{"orders":[...], "comment":"不超过30字说明"}\n' +
-    'orders 每项：{"task":任务, "unitId"?:单位ID, "group"?:兵种id, "count"?:数量, ' +
-    '"lane"?:通道, "target"?:目标}\n' +
-    '任务与目标：\n' +
-    '- hold 驻守：target=choke(桥头,配lane)/node(我方资源点)/base_own(基地)，守住点位\n' +
-    '- defend 回防：target=node(受威胁的资源点)/base_own(基地)，把部队拉回\n' +
-    '- intercept 截击：target=nearest_intruder，派最近的单位拦截入侵者\n' +
-    '- retreat 撤退：target=base_own，撤回基地（受伤单位优先）\n' +
-    '- patrol 巡逻：target=choke，在桥头之间巡逻（配 lane）\n\n' +
-    '【规则】\n' +
-    '- 优先派离目标最近的单位；通常只命令需要调动的部队，1-3 条命令即可；\n' +
-    '- 不要无条件把全部部队拉回基地——基地只有被大部队威胁时才需要重兵回防；\n' +
-    '- 远程(archer/horse_archer)站后排，肉盾(sword/wall)/长矛(spear)顶前面；\n' +
-    '- 斥候(scout)身板脆，一般不要用于防守。'
-  );
-}
 
 /**
  * 调用大模型取得决策。provider: 'deepseek' | 'doubao' | 'mimo'；role: v15 指挥链角色。
